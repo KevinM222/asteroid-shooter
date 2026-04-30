@@ -905,28 +905,50 @@
     async function submitScoreToChain(finalScore, playerName = "Player") {
       if (!contractsConfigured || !signer || finalScore < 1) return null;
 
-  try {
+      try {
     const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
     console.log("Submitting score:", finalScore, "name:", playerName);
+
+    // Use low gas limit to avoid estimation failures
+    const tx = await contract.submitScore(finalScore, playerName, {
+      gasLimit: 300000
+    });
     
-    const tx = await contract.submitScore(finalScore, playerName);
     console.log("Transaction sent:", tx.hash);
-    
     await tx.wait();
-    console.log("%c[Success] Score recorded on leaderboard!", "color:#32FF9A");
     
+    console.log("%c[Success] Score recorded on leaderboard!", "color:#32FF9A");
     await updateLeaderboard();
     return tx.hash;
+
   } catch (err) {
-    console.error("Score submission failed (full error):", err);
-    
-    // Show player-friendly message
-    const toast = document.createElement("div");
-    toast.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#F7931A;color:#000;padding:10px 20px;border-radius:8px;font-weight:bold;z-index:9999;";
-        toast.innerText = "Score saved locally (on-chain submission failed)";
+        console.error("Score submission failed:", err);
+
+        // Show visible toast to player
+        const toast = document.createElement("div");
+        toast.style.cssText = `
+          position: fixed; 
+          bottom: 80px; 
+          left: 50%; 
+          transform: translateX(-50%); 
+          background: #F7931A; 
+          color: #000; 
+          padding: 12px 24px; 
+          border-radius: 10px; 
+          font-weight: bold; 
+          z-index: 99999;
+          box-shadow: 0 0 20px #F7931A;
+          max-width: 90%;
+          text-align: center;
+        `;
+        toast.innerText = "✅ Score saved locally (on-chain failed)";
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
-    
+
+        setTimeout(() => {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 3500);
+
+        // Always update local leaderboard
         await updateLeaderboard();
         return null;
       }
