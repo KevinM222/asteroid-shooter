@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.23     -->
+  <!-- Asteroid Shooter - Rev 4.24     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -97,7 +97,7 @@
     <button id="start-game" disabled>Start Game</button>
   </div>
 
-  <div id="fee-info">Dev build: arcade mode active</div>
+  <div id="fee-info" style="display:none;">Production Build</div>
   <div id="prize-info">Monthly Prizes: 60% of buys to top 10 USDC + top 20 AST. Pot: <span id="pot-balance">0</span> USDC</div>
   <div id="score-display">Score: 0 | Missed: 0/3</div>
   <div id="token-balance" style="display:none">Tokens: 0 AST</div>
@@ -517,9 +517,7 @@
           shields = MAX_SHIELDS;
           misses++;
           updateScoreDisplay();
-          if (misses >= MISSES_ALLOWED) {
-            this.gameOver();
-          }
+          this.gameOver(); // always end game when shields hit 0
         }
       }
 
@@ -564,14 +562,16 @@
 
         // Submit in background
         if (signer && contractsConfigured && finalScore > 100) {
-          submitScoreToChain(finalScore, document.getElementById('whoami').innerText || 'Guest')
-            .then(txHash => {
-              const txDiv = document.getElementById('results-tx');
-              if (txHash && txDiv) {
-                txDiv.innerHTML = `Tx: <a href="https://sepolia.basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
-              }
-              checkNewHighScoreAndShowBanner(finalScore);
-              updateLeaderboard();   // ← Add this line
+          const rawName = document.getElementById('whoami').innerText || 'Guest';
+          const shortName = rawName.length > 20 ? rawName.slice(0, 20) : rawName;
+          submitScoreToChain(finalScore, shortName);
+          .then(txHash => {
+          const txDiv = document.getElementById('results-tx');
+          if (txHash && txDiv) {
+              txDiv.innerHTML = `Tx: <a href="https://sepolia.basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
+            }
+          checkNewHighScoreAndShowBanner(finalScore);
+          updateLeaderboard();   // ← Add this line
             })
             .catch(console.error);
         }
@@ -804,19 +804,15 @@
           loop: true
         });
 
-        // Request fullscreen IMMEDIATELY (user gesture)
+        // Force fullscreen on user click
         const container = document.getElementById('game-container');
-        try {
-          if (container.requestFullscreen) {
-            await container.requestFullscreen();
-          } else if (container.webkitRequestFullscreen) {
-            container.webkitRequestFullscreen();
-          } else if (container.msRequestFullscreen) {
-            container.msRequestFullscreen();
-          }
-        } catch (e) {
-          console.log('Fullscreen skipped - not a user gesture');
-        }
+        setTimeout(() => {
+          try {
+            if (container.requestFullscreen) container.requestFullscreen();
+            else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
+            else if (container.msRequestFullscreen) container.msRequestFullscreen();
+          } catch (e) {}
+        }, 50);
 
         // Then countdown
         setTimeout(() => {
