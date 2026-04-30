@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.24     -->
+  <!-- Asteroid Shooter - Rev 4.25     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -564,14 +564,15 @@
         if (signer && contractsConfigured && finalScore > 100) {
           const rawName = document.getElementById('whoami').innerText || 'Guest';
           const shortName = rawName.length > 20 ? rawName.slice(0, 20) : rawName;
-          submitScoreToChain(finalScore, shortName);
-          .then(txHash => {
-          const txDiv = document.getElementById('results-tx');
-          if (txHash && txDiv) {
-              txDiv.innerHTML = `Tx: <a href="https://sepolia.basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
-            }
-          checkNewHighScoreAndShowBanner(finalScore);
-          updateLeaderboard();   // ← Add this line
+          
+          submitScoreToChain(finalScore, shortName)
+            .then(txHash => {
+              const txDiv = document.getElementById('results-tx');
+              if (txHash && txDiv) {
+                txDiv.innerHTML = `Tx: <a href="https://sepolia.basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
+              }
+              checkNewHighScoreAndShowBanner(finalScore);
+              updateLeaderboard();
             })
             .catch(console.error);
         }
