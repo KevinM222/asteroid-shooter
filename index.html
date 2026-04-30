@@ -573,6 +573,10 @@
               updateLeaderboard();
             })
             .catch(console.error);
+          } else {
+            // Fallback: still update local leaderboard
+            updateLeaderboard();
+          }  
         }
 
         document.getElementById('start-game').disabled = false; // enable for loop if lives remain
@@ -899,21 +903,28 @@
       }
     }
 
-async function submitScoreToChain(finalScore, playerName = userAddress) {
-  if (!contractsConfigured || !signer || finalScore < 1) return null;
+    async function submitScoreToChain(finalScore, playerName = "Player") {
+      if (!contractsConfigured || !signer || finalScore < 1) return null;
 
-  try {
-    const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-    const tx = await contract.submitScore(finalScore, playerName || "Guest");
-    await tx.wait();
-    console.log("%c[Success] Score recorded on leaderboard!", "color:#32FF9A");
-    await updateLeaderboard();
-    return tx.hash;
-  } catch (err) {
-    console.error("Score submission failed:", err);
-    return null;
-  }
-}
+      try {
+        const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+        console.log("Submitting score:", finalScore, "name:", playerName);
+    
+        const tx = await contract.submitScore(finalScore, playerName);
+        console.log("Transaction sent:", tx.hash);
+    
+        await tx.wait();
+        console.log("%c[Success] Score recorded on leaderboard!", "color:#32FF9A");
+    
+        await updateLeaderboard();
+        return tx.hash;
+      } catch (err) {
+        console.error("Score submission failed (full error):", err);
+        // Still try to update local leaderboard
+        await updateLeaderboard();
+        return null;
+      }
+    }
 
 
 
