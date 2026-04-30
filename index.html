@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.29     -->
+  <!-- Asteroid Shooter - Rev 4.30     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -905,27 +905,32 @@
     async function submitScoreToChain(finalScore, playerName = "Player") {
       if (!contractsConfigured || !signer || finalScore < 1) return null;
 
-      try {
-        const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-        console.log("Submitting score:", finalScore, "name:", playerName);
+  try {
+    const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+    console.log("Submitting score:", finalScore, "name:", playerName);
     
-        const tx = await contract.submitScore(finalScore, playerName);
-        console.log("Transaction sent:", tx.hash);
+    const tx = await contract.submitScore(finalScore, playerName);
+    console.log("Transaction sent:", tx.hash);
     
-        await tx.wait();
-        console.log("%c[Success] Score recorded on leaderboard!", "color:#32FF9A");
+    await tx.wait();
+    console.log("%c[Success] Score recorded on leaderboard!", "color:#32FF9A");
     
-        await updateLeaderboard();
-        return tx.hash;
-      } catch (err) {
-        console.error("Score submission failed (full error):", err);
-        // Still try to update local leaderboard
+    await updateLeaderboard();
+    return tx.hash;
+  } catch (err) {
+    console.error("Score submission failed (full error):", err);
+    
+    // Show player-friendly message
+    const toast = document.createElement("div");
+    toast.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#F7931A;color:#000;padding:10px 20px;border-radius:8px;font-weight:bold;z-index:9999;";
+        toast.innerText = "Score saved locally (on-chain submission failed)";
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    
         await updateLeaderboard();
         return null;
       }
     }
-
-
 
     // ADDED FOR OUTLINE: New high score detection + banner
     async function checkNewHighScoreAndShowBanner(finalScore) {
