@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.20     -->
+  <!-- Asteroid Shooter - Rev 4.21     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -719,19 +719,18 @@
         button.disabled = true;
         document.getElementById('start-game').disabled = false;
 
-        await updateUsdcBalance();
+        await updateUsdcBalance().catch(() => {});
         if (contractsConfigured) {
-          // Temporarily disabled playerLives call to fix connection popup
-          // lives = Number(await contract.playerLives(userAddress));
           lives = 3; // Default for arcade mode
 
-          await Promise.all([
-            updateTopBar(),
-            updatePersonalHighScore(),
-            updateLeaderboard(), 
-            getTokenBalance(), 
-            updatePrizePot(), 
-            updateAstFacts()
+          // Run these safely (ignore network switch errors)
+          await Promise.allSettled([
+            updateTopBar().catch(() => {}),
+            updatePersonalHighScore().catch(() => {}),
+            updateLeaderboard().catch(() => {}),
+            getTokenBalance().catch(() => {}),
+            updatePrizePot().catch(() => {}),
+            updateAstFacts().catch(() => {})
           ]);
         }
         updateDailyClaim();   // refresh daily life timer after connect
