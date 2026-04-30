@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.21     -->
+  <!-- Asteroid Shooter - Rev 4.22     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -510,8 +510,9 @@
 
       hitShip(shipObj, asteroid) {
         asteroid.destroy();
-        shields--;
+        shields = Math.max(0, shields - 1);
         updateTopBar().catch(console.error);
+        
         if (shields <= 0) {
           shields = MAX_SHIELDS;
           misses++;
@@ -777,8 +778,11 @@
           await updateTopBar();
         }
 
-        lives--;
-        await updateTopBar();
+        if (lives > 0) {
+          lives--;
+          await updateTopBar();
+        }
+
 
         // === FULLSCREEN + GAME START (after tx confirmed) ===
         const sceneInstance = game.scene.scenes[0];
@@ -800,13 +804,19 @@
           loop: true
         });
 
-        // Request fullscreen FIRST (per your exact order)
+        // Request fullscreen IMMEDIATELY (user gesture)
         const container = document.getElementById('game-container');
         try {
-          if (container.requestFullscreen) await container.requestFullscreen();
-          else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
-          else if (container.msRequestFullscreen) container.msRequestFullscreen();
-        } catch (e) { console.log('Fullscreen skipped'); }
+          if (container.requestFullscreen) {
+            await container.requestFullscreen();
+          } else if (container.webkitRequestFullscreen) {
+            container.webkitRequestFullscreen();
+          } else if (container.msRequestFullscreen) {
+            container.msRequestFullscreen();
+          }
+        } catch (e) {
+          console.log('Fullscreen skipped - not a user gesture');
+        }
 
         // Then countdown
         setTimeout(() => {
@@ -880,17 +890,17 @@
     }
 
 async function submitScoreToChain(finalScore, playerName = userAddress) {
-  if (!contractsConfigured || !signer || finalScore <= 100) return null;
+  if (!contractsConfigured || !signer || finalScore <= 30) return null; // lowered threshold
 
   try {
     const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-    const tx = await contract.submitScore(finalScore, playerName);
+    const tx = await contract.submitScore(finalScore, playerName || "Guest");
     await tx.wait();
-    console.log("%c[Success] Score recorded!", "color:#32FF9A");
+    console.log("%c[Success] Score recorded on leaderboard!", "color:#32FF9A");
     await updateLeaderboard();
-    return tx.hash;   // ← returns the real transaction hash
+    return tx.hash;
   } catch (err) {
-    console.warn("Score submission skipped (old contract issue)");
+    console.error("Score submission failed:", err);
     return null;
   }
 }
@@ -901,6 +911,7 @@ async function submitScoreToChain(finalScore, playerName = userAddress) {
     async function checkNewHighScoreAndShowBanner(finalScore) {
       await updatePersonalHighScore();
       if (finalScore > personalHighScore) {
+        personalHighScore = finalScore; // update local value immediately
         showNewHighBanner();
       }
     }
