@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.26     -->
+  <!-- Asteroid Shooter - Rev 4.27     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -561,7 +561,7 @@
         showResultsOverlay(finalScore, astEarned);
 
         // Submit in background
-        if (signer && contractsConfigured && finalScore > 100) {
+        if (signer && contractsConfigured) {
           const shortName = "Player";
           submitScoreToChain(finalScore, shortName)
             .then(txHash => {
@@ -809,24 +809,24 @@
           loop: true
         });
 
-        // Fullscreen - direct + backup
+        // Aggressive fullscreen attempt
         const container = document.getElementById('game-container');
-        try {
-          if (container.requestFullscreen) {
-            container.requestFullscreen().catch(() => {});
-          } else if (container.webkitRequestFullscreen) {
-            container.webkitRequestFullscreen();
-          } else if (container.msRequestFullscreen) {
-            container.msRequestFullscreen();
-          }
-        } catch (e) {}
         
-        // Backup fullscreen after short delay
-        setTimeout(() => {
-          if (!document.fullscreenElement) {
-            try { container.requestFullscreen?.(); } catch(e){}
-          }
-        }, 300);
+        const tryFullscreen = () => {
+          try {
+            if (container.requestFullscreen) {
+              container.requestFullscreen();
+            } else if (container.webkitRequestFullscreen) {
+              container.webkitRequestFullscreen();
+            } else if (container.msRequestFullscreen) {
+              container.msRequestFullscreen();
+            }
+          } catch (e) {}
+        };
+        
+        tryFullscreen();
+        setTimeout(tryFullscreen, 100);
+        setTimeout(tryFullscreen, 400);
 
         // Then countdown
         setTimeout(() => {
@@ -900,7 +900,7 @@
     }
 
 async function submitScoreToChain(finalScore, playerName = userAddress) {
-  if (!contractsConfigured || !signer || finalScore <= 30) return null; // lowered threshold
+  if (!contractsConfigured || !signer || finalScore < 1) return null;
 
   try {
     const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
