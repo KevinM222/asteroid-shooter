@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.25     -->
+  <!-- Asteroid Shooter - Rev 4.26     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -562,9 +562,7 @@
 
         // Submit in background
         if (signer && contractsConfigured && finalScore > 100) {
-          const rawName = document.getElementById('whoami').innerText || 'Guest';
-          const shortName = rawName.length > 20 ? rawName.slice(0, 20) : rawName;
-          
+          const shortName = "Player";
           submitScoreToChain(finalScore, shortName)
             .then(txHash => {
               const txDiv = document.getElementById('results-tx');
@@ -722,8 +720,14 @@
         document.getElementById('start-game').disabled = false;
 
         await updateUsdcBalance().catch(() => {});
-        if (contractsConfigured) {
-          lives = 3; // Default for arcade mode
+        if (contractsConfigured && userAddress) {
+          try {
+            const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+            const onChainLives = await c.playerLives(userAddress);
+            lives = Number(onChainLives) || 3;
+          } catch (e) {
+            lives = 3;
+          }
 
           // Run these safely (ignore network switch errors)
           await Promise.allSettled([
@@ -805,15 +809,24 @@
           loop: true
         });
 
-        // Force fullscreen on user click
+        // Fullscreen - direct + backup
         const container = document.getElementById('game-container');
+        try {
+          if (container.requestFullscreen) {
+            container.requestFullscreen().catch(() => {});
+          } else if (container.webkitRequestFullscreen) {
+            container.webkitRequestFullscreen();
+          } else if (container.msRequestFullscreen) {
+            container.msRequestFullscreen();
+          }
+        } catch (e) {}
+        
+        // Backup fullscreen after short delay
         setTimeout(() => {
-          try {
-            if (container.requestFullscreen) container.requestFullscreen();
-            else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
-            else if (container.msRequestFullscreen) container.msRequestFullscreen();
-          } catch (e) {}
-        }, 50);
+          if (!document.fullscreenElement) {
+            try { container.requestFullscreen?.(); } catch(e){}
+          }
+        }, 300);
 
         // Then countdown
         setTimeout(() => {
