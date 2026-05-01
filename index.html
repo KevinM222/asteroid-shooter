@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.33     -->
+  <!-- Asteroid Shooter - Rev 4.36     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -792,46 +792,46 @@
         }
 
 
-    // === FULLSCREEN (triggered properly after user gesture) ===
+    // === FULLSCREEN + COUNTDOWN (Rev 4.36 - fixed) ===
+    const sceneInstance = game.scene.scenes[0];
     const container = document.getElementById('game-container');
 
+    // Fullscreen must be called synchronously inside the click handler
+    try {
+      if (container.requestFullscreen) {
+        container.requestFullscreen().catch(() => {});
+      } else if (container.webkitRequestFullscreen) {
+        container.webkitRequestFullscreen();
+      } else if (container.msRequestFullscreen) {
+        container.msRequestFullscreen();
+      }
+    } catch (e) {}
+
+    // Then countdown
     setTimeout(() => {
-      try {
-        if (container.requestFullscreen) {
-          container.requestFullscreen().catch(() => {});
-        } else if (container.webkitRequestFullscreen) {
-          container.webkitRequestFullscreen();
-        } else if (container.msRequestFullscreen) {
-          container.msRequestFullscreen();
-        }
-      } catch (e) {}
-    }, 50);
+      const height = sceneInstance.scale.height;
+      const fontSize = Math.max(48 * baseScale, height * 0.12);
+      const countdownText = sceneInstance.add.text(sceneInstance.scale.width / 2, sceneInstance.scale.height / 2, "3", { 
+        fontSize: `${fontSize}px`, fill: "#32FF9A", fontStyle: "bold",
+        stroke: "#F7931A", strokeThickness: 3 
+      }).setOrigin(0.5).setDepth(10);
 
-        // Then countdown
-        setTimeout(() => {
-          const height = sceneInstance.scale.height;
-          const fontSize = Math.max(48 * baseScale, height * 0.12);
-          const countdownText = sceneInstance.add.text(sceneInstance.scale.width / 2, sceneInstance.scale.height / 2, "3", { 
-            fontSize: `${fontSize}px`, fill: "#32FF9A", fontStyle: "bold",
-            stroke: "#F7931A", strokeThickness: 3 
-          }).setOrigin(0.5).setDepth(10);
-
-          sceneInstance.time.delayedCall(1000, () => countdownText.setText("2"));
-          sceneInstance.time.delayedCall(2000, () => countdownText.setText("1"));
-          sceneInstance.time.delayedCall(3000, () => {
-            countdownText.setText("GO!");
-            sceneInstance.time.delayedCall(500, () => {
-              countdownText.destroy();
-              gameplayActive = true;
-              sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
-                delay: 1000, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
-              });
-              sceneInstance.shootTimer = sceneInstance.time.addEvent({ 
-                delay: 250, callback: sceneInstance.shootLaser, callbackScope: sceneInstance, loop: true 
-              });
-            });
+      sceneInstance.time.delayedCall(1000, () => countdownText.setText("2"));
+      sceneInstance.time.delayedCall(2000, () => countdownText.setText("1"));
+      sceneInstance.time.delayedCall(3000, () => {
+        countdownText.setText("GO!");
+        sceneInstance.time.delayedCall(500, () => {
+          countdownText.destroy();
+          gameplayActive = true;
+          sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
+            delay: 1000, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
           });
-        }, 300);
+          sceneInstance.shootTimer = sceneInstance.time.addEvent({ 
+            delay: 250, callback: sceneInstance.shootLaser, callbackScope: sceneInstance, loop: true 
+          });
+        });
+      });
+    }, 300);
 
       } catch (err) {
         console.error('Start game error:', err);
