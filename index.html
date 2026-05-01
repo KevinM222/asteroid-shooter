@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.32     -->
+  <!-- Asteroid Shooter - Rev 4.33     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -162,7 +162,7 @@
   </div>
 
   <div id="leaderboard">
-    <h2>Global Leaderboard (dev)</h2>
+    <h2>Global Leaderboard</h2>
     <ul id="leaderboard-list"></ul>
   </div>
 
@@ -555,7 +555,7 @@
 
         // AUTO SUBMIT + MINT + NEW HIGH CHECK (per outline)
         const finalScore = score;
-        const astEarned = Math.floor(finalScore / 50);
+        const astEarned = Math.floor(finalScore / 50) + (finalScore > personalHighScore ? 50 : 0);
 
         // Show overlay instantly — no wallet delay
         showResultsOverlay(finalScore, astEarned);
@@ -792,44 +792,20 @@
         }
 
 
-        // === FULLSCREEN + GAME START (after tx confirmed) ===
-        const sceneInstance = game.scene.scenes[0];
-        gameplayActive = false;
-        hideResultsOverlay();
-        if (gameOverText) gameOverText.destroy();
-        if (gameOverSub) gameOverSub.destroy();
-        misses = 0;
-        score = 0;
-        shields = MAX_SHIELDS;
-        updateScoreDisplay();
-        updateTopBar();
-        speedMultiplier = 1.0;
-        if (speedRampTimer) speedRampTimer.remove();
+    // === FULLSCREEN (triggered properly after user gesture) ===
+    const container = document.getElementById('game-container');
 
-        speedRampTimer = sceneInstance.time.addEvent({
-          delay: 12000,
-          callback: () => speedMultiplier = Math.min(speedMultiplier + 0.15, 2.2),
-          loop: true
-        });
-
-        // Aggressive fullscreen attempt
-        const container = document.getElementById('game-container');
-        
-        const tryFullscreen = () => {
-          try {
-            if (container.requestFullscreen) {
-              container.requestFullscreen();
-            } else if (container.webkitRequestFullscreen) {
-              container.webkitRequestFullscreen();
-            } else if (container.msRequestFullscreen) {
-              container.msRequestFullscreen();
-            }
-          } catch (e) {}
-        };
-        
-        tryFullscreen();
-        setTimeout(tryFullscreen, 100);
-        setTimeout(tryFullscreen, 400);
+    setTimeout(() => {
+      try {
+        if (container.requestFullscreen) {
+          container.requestFullscreen().catch(() => {});
+        } else if (container.webkitRequestFullscreen) {
+          container.webkitRequestFullscreen();
+        } else if (container.msRequestFullscreen) {
+          container.msRequestFullscreen();
+        }
+      } catch (e) {}
+    }, 50);
 
         // Then countdown
         setTimeout(() => {
