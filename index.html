@@ -209,8 +209,12 @@
       'function balanceOf(address) view returns (uint256)',
       'function totalSupply() view returns (uint256)',
       'function mint(address to, uint256 amount) external',
-      'function grantMinterRole(address minter) external'
+      'function grantMinterRole(address minter) external',
+      // Rev 4.41 – added for MINTER_ROLE diagnostic (mobile/Base App debugging)
+      'function hasRole(bytes32 role, address account) view returns (bool)',
+      'function MINTER_ROLE() view returns (bytes32)'
     ];
+
     const usdcAbi = [
       'function approve(address,uint256) external returns (bool)',
       'function allowance(address,address) external view returns (uint256)',
@@ -884,10 +888,16 @@
         const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
         console.log("Submitting score:", finalScore, "name:", playerName);
 
-        // Rev 4.40: Pre-submit lives check + stronger revert logging for Base App/mobile debugging
+        // Rev 4.40 pre-check (still here)
         const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
         const currentLives = Number(await c.playerLives(userAddress));
         console.log(`[Pre-submit check] Current lives on-chain: ${currentLives}`);
+
+        // Rev 4.41: MINTER_ROLE diagnostic (this is the smoking gun)
+        const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
+        const MINTER_ROLE = await token.MINTER_ROLE();
+        const hasMinter = await token.hasRole(MINTER_ROLE, leaderboardAddress);
+        console.log(`[Minter Role Check] Leaderboard HAS MINTER_ROLE on AST token: ${hasMinter}`);
 
         const tx = await contract.submitScore(finalScore, playerName);
 
@@ -901,7 +911,7 @@
       } catch (err) {
         console.error("=== SCORE SUBMISSION FAILED ===", err);
 
-        // Rev 4.40: Aggressive revert reason extraction (critical for Base App)
+        // Rev 4.41: Even stronger revert extraction for Base App/mobile
         let revertMsg = err.reason || err.message || "Unknown error";
         if (err.data) {
           if (err.data.message) revertMsg = err.data.message;
@@ -923,6 +933,7 @@
         return null;
       }
     }
+        
     // ADDED FOR OUTLINE: New high score detection + banner
     async function checkNewHighScoreAndShowBanner(finalScore) {
       await updatePersonalHighScore();
