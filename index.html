@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.44     -->
+  <!-- Asteroid Shooter - Rev 4.45     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -888,21 +888,25 @@
         const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
         console.log("Submitting score:", finalScore, "name:", playerName);
 
-        // Rev 4.43 pre-check (still here)
+        // Rev 4.43 pre-checks (still here)
         const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
         const currentLives = Number(await c.playerLives(userAddress));
         console.log(`[Pre-submit check] Current lives on-chain: ${currentLives}`);
 
-        // Rev 4.43 minter check (still here)
         const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
         const MINTER_ROLE = await token.MINTER_ROLE();
         const hasMinter = await token.hasRole(MINTER_ROLE, leaderboardAddress);
         console.log(`[Minter Role Check] Leaderboard HAS MINTER_ROLE on AST token: ${hasMinter}`);
 
-        // Rev 4.44: callStatic forces the REAL revert reason from the contract (fixes "missing revert data")
-        console.log("Running callStatic to surface exact contract revert reason...");
-        await contract.callStatic.submitScore(finalScore, playerName);
-        console.log("callStatic passed – proceeding to send real tx");
+        // Rev 4.45: Correct ethers v6 staticCall syntax + safe try/catch (mobile/Base App)
+        console.log("Running staticCall to surface exact contract revert reason...");
+        try {
+          await contract.staticCall.submitScore(finalScore, playerName);
+          console.log("staticCall passed – proceeding to send real tx");
+        } catch (staticErr) {
+          console.error("staticCall caught revert:", staticErr);
+          throw staticErr; // re-throw so main catch block logs the exact Solidity reason
+        }
 
         const tx = await contract.submitScore(finalScore, playerName);
 
@@ -916,7 +920,7 @@
       } catch (err) {
         console.error("=== SCORE SUBMISSION FAILED ===", err);
 
-        // Rev 4.44: Aggressive revert extraction + callStatic already ran above
+        // Rev 4.45: Aggressive revert extraction for Base mainnet
         let revertMsg = err.reason || err.message || "Unknown error";
         if (err.data) {
           if (err.data.message) revertMsg = err.data.message;
@@ -937,8 +941,7 @@
         await updateLeaderboard();
         return null;
       }
-    }
-    
+    }   
     // ADDED FOR OUTLINE: New high score detection + banner
     async function checkNewHighScoreAndShowBanner(finalScore) {
       await updatePersonalHighScore();
