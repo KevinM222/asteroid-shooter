@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.40     -->
+  <!-- Asteroid Shooter - Rev 4.42     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -933,7 +933,7 @@
         return null;
       }
     }
-        
+
     // ADDED FOR OUTLINE: New high score detection + banner
     async function checkNewHighScoreAndShowBanner(finalScore) {
       await updatePersonalHighScore();
@@ -1072,13 +1072,30 @@
     });
     
 
-    // One-time minter grant (run once in console as owner)
+    // One-time minter grant – Rev 4.42 robust version (forces fresh signer for Sepolia/Remix)
     async function grantMinterRoleOnce() {
-      if (!signer) return alert('Connect first');
-      const token = new ethers.Contract(tokenAddress, tokenAbi, signer);
-      const tx = await token.grantMinterRole(leaderboardAddress);
-      await tx.wait();
-      console.log('Minter role granted to leaderboard');
+      try {
+        if (!window.ethereum) throw new Error("MetaMask not found – connect wallet first");
+        
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        await provider.send("eth_requestAccounts", []); // force connect
+        const signer = await provider.getSigner();
+        const ownerAddress = await signer.getAddress();
+        console.log("Connected as owner:", ownerAddress);
+
+        const token = new ethers.Contract(tokenAddress, tokenAbi, signer);
+        console.log("Granting MINTER_ROLE to Leaderboard on Sepolia...");
+        
+        const tx = await token.grantMinterRole(leaderboardAddress);
+        console.log("Grant tx sent:", tx.hash);
+        await tx.wait();
+        
+        console.log("%c✅ SUCCESS! Leaderboard now has MINTER_ROLE on AST token!", "color:#32FF9A; font-size:18px");
+        alert("✅ Minter role granted successfully on Sepolia!\n\nRefresh the page and play a game to test AST minting + leaderboard.");
+      } catch (err) {
+        console.error("Failed to grant role:", err);
+        alert("Grant failed: " + (err.message || err));
+      }
     }
 
     async function addASTToMetaMask() {
