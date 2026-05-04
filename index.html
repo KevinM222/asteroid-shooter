@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.42     -->
+  <!-- Asteroid Shooter - Rev 4.43     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -578,7 +578,7 @@
             .then(txHash => {
               const txDiv = document.getElementById('results-tx');
               if (txHash && txDiv) {
-                txDiv.innerHTML = `Tx: <a href="https://sepolia.basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
+                txDiv.innerHTML = `Tx: <a href="https://basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
               }
               checkNewHighScoreAndShowBanner(finalScore);
               updateLeaderboard();
@@ -1072,7 +1072,7 @@
     });
     
 
-    // One-time minter grant – Rev 4.42 robust version (forces fresh signer for Sepolia/Remix)
+    // One-time minter grant – Rev 4.43 mainnet cleanup
     async function grantMinterRoleOnce() {
       try {
         if (!window.ethereum) throw new Error("MetaMask not found – connect wallet first");
@@ -1084,14 +1084,14 @@
         console.log("Connected as owner:", ownerAddress);
 
         const token = new ethers.Contract(tokenAddress, tokenAbi, signer);
-        console.log("Granting MINTER_ROLE to Leaderboard on Sepolia...");
+        console.log("Granting MINTER_ROLE to Leaderboard on Base mainnet...");
         
         const tx = await token.grantMinterRole(leaderboardAddress);
         console.log("Grant tx sent:", tx.hash);
         await tx.wait();
         
         console.log("%c✅ SUCCESS! Leaderboard now has MINTER_ROLE on AST token!", "color:#32FF9A; font-size:18px");
-        alert("✅ Minter role granted successfully on Sepolia!\n\nRefresh the page and play a game to test AST minting + leaderboard.");
+        alert("✅ Minter role granted successfully on Base mainnet!\n\nRefresh the page and play a game to test AST minting + leaderboard.");
       } catch (err) {
         console.error("Failed to grant role:", err);
         alert("Grant failed: " + (err.message || err));
