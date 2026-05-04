@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.43     -->
+  <!-- Asteroid Shooter - Rev 4.44     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -888,16 +888,21 @@
         const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
         console.log("Submitting score:", finalScore, "name:", playerName);
 
-        // Rev 4.40 pre-check (still here)
+        // Rev 4.43 pre-check (still here)
         const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
         const currentLives = Number(await c.playerLives(userAddress));
         console.log(`[Pre-submit check] Current lives on-chain: ${currentLives}`);
 
-        // Rev 4.41: MINTER_ROLE diagnostic (this is the smoking gun)
+        // Rev 4.43 minter check (still here)
         const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
         const MINTER_ROLE = await token.MINTER_ROLE();
         const hasMinter = await token.hasRole(MINTER_ROLE, leaderboardAddress);
         console.log(`[Minter Role Check] Leaderboard HAS MINTER_ROLE on AST token: ${hasMinter}`);
+
+        // Rev 4.44: callStatic forces the REAL revert reason from the contract (fixes "missing revert data")
+        console.log("Running callStatic to surface exact contract revert reason...");
+        await contract.callStatic.submitScore(finalScore, playerName);
+        console.log("callStatic passed – proceeding to send real tx");
 
         const tx = await contract.submitScore(finalScore, playerName);
 
@@ -911,7 +916,7 @@
       } catch (err) {
         console.error("=== SCORE SUBMISSION FAILED ===", err);
 
-        // Rev 4.41: Even stronger revert extraction for Base App/mobile
+        // Rev 4.44: Aggressive revert extraction + callStatic already ran above
         let revertMsg = err.reason || err.message || "Unknown error";
         if (err.data) {
           if (err.data.message) revertMsg = err.data.message;
@@ -933,7 +938,7 @@
         return null;
       }
     }
-
+    
     // ADDED FOR OUTLINE: New high score detection + banner
     async function checkNewHighScoreAndShowBanner(finalScore) {
       await updatePersonalHighScore();
