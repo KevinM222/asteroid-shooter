@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.39     -->
+  <!-- Asteroid Shooter - Rev 4.40     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -574,7 +574,7 @@
             .then(txHash => {
               const txDiv = document.getElementById('results-tx');
               if (txHash && txDiv) {
-                txDiv.innerHTML = `Tx: <a href="https://basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
+                txDiv.innerHTML = `Tx: <a href="https://sepolia.basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
               }
               checkNewHighScoreAndShowBanner(finalScore);
               updateLeaderboard();
@@ -884,7 +884,11 @@
         const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
         console.log("Submitting score:", finalScore, "name:", playerName);
 
-        // Rev 4.39: No manual gasLimit + full revert reason logging for mobile/Base App debugging
+        // Rev 4.40: Pre-submit lives check + stronger revert logging for Base App/mobile debugging
+        const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+        const currentLives = Number(await c.playerLives(userAddress));
+        console.log(`[Pre-submit check] Current lives on-chain: ${currentLives}`);
+
         const tx = await contract.submitScore(finalScore, playerName);
 
         console.log("Transaction sent:", tx.hash);
@@ -897,11 +901,14 @@
       } catch (err) {
         console.error("=== SCORE SUBMISSION FAILED ===", err);
 
-        // Rev 4.39: Show exact contract revert reason (critical for Base App/mobile)
-        let revertMsg = err.reason || err.message || "Unknown";
-        if (err.data && err.data.message) revertMsg = err.data.message;
+        // Rev 4.40: Aggressive revert reason extraction (critical for Base App)
+        let revertMsg = err.reason || err.message || "Unknown error";
+        if (err.data) {
+          if (err.data.message) revertMsg = err.data.message;
+          else if (typeof err.data === "string") revertMsg = err.data;
+        }
         if (err.error && err.error.message) revertMsg = err.error.message;
-        console.error("Exact revert reason:", revertMsg);
+        console.error("Exact revert reason from contract:", revertMsg);
 
         const toast = document.createElement("div");
         toast.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
@@ -910,13 +917,12 @@
           max-width:92%; text-align:center; font-size:15px;`;
         toast.innerHTML = `✅ Score saved locally<br><span style="font-size:12px;opacity:0.8;">(on-chain failed: ${revertMsg})</span>`;
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 6000);
+        setTimeout(() => toast.remove(), 8000);
 
         await updateLeaderboard();
         return null;
       }
     }
-
     // ADDED FOR OUTLINE: New high score detection + banner
     async function checkNewHighScoreAndShowBanner(finalScore) {
       await updatePersonalHighScore();
