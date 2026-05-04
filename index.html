@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.36     -->
+  <!-- Asteroid Shooter - Rev 4.37     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -251,18 +251,25 @@
     function showResultsOverlay(finalScore, astEarned, txHash = null) {
       const overlay = document.getElementById('results-overlay');
       document.getElementById('results-score').innerText = `Score: ${finalScore}`;
-      document.getElementById('results-ast').innerText = `+${astEarned} AST sent to your wallet!`;
+      document.getElementById('results-ast').innerHTML = `+${astEarned} AST minted!<br><button id="add-ast-metamask" style="margin-top:8px;padding:8px 16px;font-size:14px;background:#F7931A;color:#000;border:none;border-radius:8px;cursor:pointer;">Add AST to MetaMask</button>`;
       document.getElementById('results-title').innerText = finalScore > personalHighScore ? 'NEW HIGH SCORE!' : 'GAME OVER';
 
       const txDiv = document.getElementById('results-tx');
       if (txHash) {
-        txDiv.innerHTML = `Tx: <a href="https://sepolia.basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
+        txDiv.innerHTML = `Tx: <a href="https://basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
       } else {
         txDiv.innerHTML = '';
       }
 
       overlay.style.display = 'block';
+
+      // Add-to-MetaMask handler
+      setTimeout(() => {
+        const btn = document.getElementById('add-ast-metamask');
+        if (btn) btn.addEventListener('click', addASTToMetaMask);
+      }, 100);
     }
+    
     function hideResultsOverlay() {
       document.getElementById('results-overlay').style.display = 'none';
     }
@@ -753,7 +760,7 @@
       }
     });
 
-    // Start Game – EXPLICIT LIFE CONFIRMATION + TX + FULLSCREEN (exact user order)
+    // Start Game – EXPLICIT LIFE CONFIRMATION + TX + FULLSCREEN (Rev 4.37)
     const startButton = document.getElementById("start-game");
     startButton.addEventListener("click", async () => {
       if (!userAddress) return alert("Connect wallet first");
@@ -767,20 +774,28 @@
       startButton.disabled = true;
       const playerName = sdk?.context?.user?.username || document.getElementById('whoami').innerText || "Guest";
 
+      // === FULLSCREEN SYNCHRONOUSLY IN CLICK (Rev 4.37 - fixes "game doesnt take over entire screen") ===
+      const container = document.getElementById('game-container');
+      try {
+        if (container.requestFullscreen) await container.requestFullscreen();
+        else if (container.webkitRequestFullscreen) await container.webkitRequestFullscreen();
+        else if (container.msRequestFullscreen) await container.msRequestFullscreen();
+        console.log('%c[Fullscreen] Game container now fullscreen', 'color:#32FF9A');
+      } catch (e) {
+        console.warn('Fullscreen blocked by browser (common in MiniKit frames) – continuing', e);
+      }
+
       try {
         if (contractsConfigured && signer) {
           const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
           const tx = await contract.startGame(playerName);
-          // Show clear waiting message
           const waitingMsg = document.createElement('div');
           waitingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#111;color:#32FF9A;padding:16px 24px;border-radius:12px;border:2px solid #0052FF;z-index:9999;';
           waitingMsg.innerText = 'Waiting for wallet confirmation...';
           document.body.appendChild(waitingMsg);
-
           await tx.wait();
           waitingMsg.remove();
 
-          // Re-sync lives
           const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
           lives = Number(await c.playerLives(userAddress));
           await updateTopBar();
@@ -791,47 +806,32 @@
           await updateTopBar();
         }
 
+        // === COUNTDOWN + GAME START ===
+        const sceneInstance = game.scene.scenes[0];
+        setTimeout(() => {
+          const height = sceneInstance.scale.height;
+          const fontSize = Math.max(48 * baseScale, height * 0.12);
+          const countdownText = sceneInstance.add.text(sceneInstance.scale.width / 2, sceneInstance.scale.height / 2, "3", { 
+            fontSize: `${fontSize}px`, fill: "#32FF9A", fontStyle: "bold",
+            stroke: "#F7931A", strokeThickness: 3 
+          }).setOrigin(0.5).setDepth(10);
 
-    // === FULLSCREEN + COUNTDOWN (Rev 4.36 - fixed) ===
-    const sceneInstance = game.scene.scenes[0];
-    const container = document.getElementById('game-container');
-
-    // Fullscreen must be called synchronously inside the click handler
-    try {
-      if (container.requestFullscreen) {
-        container.requestFullscreen().catch(() => {});
-      } else if (container.webkitRequestFullscreen) {
-        container.webkitRequestFullscreen();
-      } else if (container.msRequestFullscreen) {
-        container.msRequestFullscreen();
-      }
-    } catch (e) {}
-
-    // Then countdown
-    setTimeout(() => {
-      const height = sceneInstance.scale.height;
-      const fontSize = Math.max(48 * baseScale, height * 0.12);
-      const countdownText = sceneInstance.add.text(sceneInstance.scale.width / 2, sceneInstance.scale.height / 2, "3", { 
-        fontSize: `${fontSize}px`, fill: "#32FF9A", fontStyle: "bold",
-        stroke: "#F7931A", strokeThickness: 3 
-      }).setOrigin(0.5).setDepth(10);
-
-      sceneInstance.time.delayedCall(1000, () => countdownText.setText("2"));
-      sceneInstance.time.delayedCall(2000, () => countdownText.setText("1"));
-      sceneInstance.time.delayedCall(3000, () => {
-        countdownText.setText("GO!");
-        sceneInstance.time.delayedCall(500, () => {
-          countdownText.destroy();
-          gameplayActive = true;
-          sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
-            delay: 1000, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
+          sceneInstance.time.delayedCall(1000, () => countdownText.setText("2"));
+          sceneInstance.time.delayedCall(2000, () => countdownText.setText("1"));
+          sceneInstance.time.delayedCall(3000, () => {
+            countdownText.setText("GO!");
+            sceneInstance.time.delayedCall(500, () => {
+              countdownText.destroy();
+              gameplayActive = true;
+              sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
+                delay: 1000, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
+              });
+              sceneInstance.shootTimer = sceneInstance.time.addEvent({ 
+                delay: 250, callback: sceneInstance.shootLaser, callbackScope: sceneInstance, loop: true 
+              });
+            });
           });
-          sceneInstance.shootTimer = sceneInstance.time.addEvent({ 
-            delay: 250, callback: sceneInstance.shootLaser, callbackScope: sceneInstance, loop: true 
-          });
-        });
-      });
-    }, 300);
+        }, 300);
 
       } catch (err) {
         console.error('Start game error:', err);
@@ -885,39 +885,31 @@
         const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
         console.log("Submitting score:", finalScore, "name:", playerName);
 
-        const tx = await contract.submitScore(finalScore, playerName, {
-          gasLimit: 350000
-        });
-    
+        const tx = await contract.submitScore(finalScore, playerName, { gasLimit: 400000 });
+
         console.log("Transaction sent:", tx.hash);
         await tx.wait();
-    
-        console.log("%c[Success] Score recorded on leaderboard!", "color:#32FF9A");
-        await updateLeaderboard();
+
+        console.log("%c[Success] Score recorded + AST minted!", "color:#32FF9A");
+        // Refresh everything now that minting works
+        await Promise.all([updateLeaderboard(), getTokenBalance(), updateAstFacts()]);
         return tx.hash;
 
       } catch (err) {
-        console.error("=== SCORE SUBMISSION FAILED ===");
-        console.error("Error:", err);
-        console.error("Reason:", err.reason || err.message || "Unknown contract revert");
-
-        // Always show visible toast
+        console.error("=== SCORE SUBMISSION FAILED ===", err);
         const toast = document.createElement("div");
-        toast.style.cssText = `
-          position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
+        toast.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
           background:#F7931A; color:#000; padding:14px 22px; border-radius:12px;
-          font-weight:bold; z-index:999999; box-shadow:0 0 25px #F7931A;
-          max-width:92%; text-align:center; font-size:15px;
-        `;
-        toast.innerHTML = `✅ Score saved locally<br><span style="font-size:12px;opacity:0.8;">(on-chain submission failed)</span>`;
+          font-weight:bold; z-index:999999; box-shadow:0 0 25px #F7931A; max-width:92%; text-align:center;`;
+        toast.innerHTML = `✅ Score saved locally<br><span style="font-size:12px;opacity:0.8;">(on-chain failed)</span>`;
         document.body.appendChild(toast);
-
         setTimeout(() => toast.remove(), 4200);
 
         await updateLeaderboard();
         return null;
       }
     }
+    
     // ADDED FOR OUTLINE: New high score detection + banner
     async function checkNewHighScoreAndShowBanner(finalScore) {
       await updatePersonalHighScore();
@@ -1064,7 +1056,28 @@
       await tx.wait();
       console.log('Minter role granted to leaderboard');
     }
-
+    
+    async function addASTToMetaMask() {
+      if (!window.ethereum) return alert("MetaMask not detected");
+      try {
+        await window.ethereum.request({
+          method: 'wallet_watchAsset',
+          params: {
+            type: 'ERC20',
+            options: {
+              address: tokenAddress,
+              symbol: 'AST',
+              decimals: 18,
+              image: 'https://i.imgur.com/8v5v5v5.png' // optional asteroid icon
+            }
+          }
+        });
+        alert('✅ AST token added to MetaMask!');
+      } catch (err) {
+        console.error(err);
+        alert('Could not add token');
+      }
+    }
     // Initial load (Guest mode)
     document.addEventListener('DOMContentLoaded', () => {
       updateTopBar();
