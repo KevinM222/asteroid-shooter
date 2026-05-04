@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.38     -->
+  <!-- Asteroid Shooter - Rev 4.39     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -760,7 +760,7 @@
       }
     });
 
-    // Start Game – EXPLICIT LIFE CONFIRMATION + TX + FULLSCREEN (Rev 4.38)
+    // Start Game – EXPLICIT LIFE CONFIRMATION + TX + FULLSCREEN (Rev 4.39 - mobile-first)
     const startButton = document.getElementById("start-game");
     startButton.addEventListener("click", async () => {
       if (!userAddress) return alert("Connect wallet first");
@@ -795,7 +795,7 @@
           await updateTopBar();
         }
 
-        // === FULLSCREEN AFTER TX CONFIRMATION (Rev 4.38 - fixes desktop popup issue) ===
+        // === FULLSCREEN AFTER TX (Rev 4.39 - safe for mobile/Base App) ===
         const container = document.getElementById('game-container');
         try {
           if (container.requestFullscreen) await container.requestFullscreen();
@@ -803,7 +803,7 @@
           else if (container.msRequestFullscreen) await container.msRequestFullscreen();
           console.log('%c[Fullscreen] Game container now fullscreen', 'color:#32FF9A');
         } catch (e) {
-          console.warn('Fullscreen blocked (normal on mobile/MiniKit) – continuing', e);
+          console.warn('Fullscreen blocked (normal on mobile/Base App/MiniKit) – continuing', e);
         }
 
         // === COUNTDOWN + GAME START ===
@@ -839,7 +839,6 @@
         startButton.disabled = false;
       }
     });
-
     // Buy Lives (unchanged except post-buy refresh)
     document.getElementById("buy-1").addEventListener("click", () => buyLives(1, 0.10));
     document.getElementById("buy-10").addEventListener("click", () => buyLives(10, 0.90));
@@ -885,7 +884,7 @@
         const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
         console.log("Submitting score:", finalScore, "name:", playerName);
 
-        // Rev 4.38: No manual gasLimit → let MetaMask/ethers auto-estimate (fixes "Invalid params" RPC error)
+        // Rev 4.39: No manual gasLimit + full revert reason logging for mobile/Base App debugging
         const tx = await contract.submitScore(finalScore, playerName);
 
         console.log("Transaction sent:", tx.hash);
@@ -897,14 +896,21 @@
 
       } catch (err) {
         console.error("=== SCORE SUBMISSION FAILED ===", err);
+
+        // Rev 4.39: Show exact contract revert reason (critical for Base App/mobile)
+        let revertMsg = err.reason || err.message || "Unknown";
+        if (err.data && err.data.message) revertMsg = err.data.message;
+        if (err.error && err.error.message) revertMsg = err.error.message;
+        console.error("Exact revert reason:", revertMsg);
+
         const toast = document.createElement("div");
         toast.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
           background:#F7931A; color:#000; padding:14px 22px; border-radius:12px;
           font-weight:bold; z-index:999999; box-shadow:0 0 25px #F7931A;
           max-width:92%; text-align:center; font-size:15px;`;
-        toast.innerHTML = `✅ Score saved locally<br><span style="font-size:12px;opacity:0.8;">(on-chain failed - check console)</span>`;
+        toast.innerHTML = `✅ Score saved locally<br><span style="font-size:12px;opacity:0.8;">(on-chain failed: ${revertMsg})</span>`;
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 4200);
+        setTimeout(() => toast.remove(), 6000);
 
         await updateLeaderboard();
         return null;
