@@ -840,7 +840,7 @@
         startButton.disabled = false;
       }
     });
-    
+
     // Buy Lives (unchanged except post-buy refresh)
     document.getElementById("buy-1").addEventListener("click", () => buyLives(1, 0.10));
     document.getElementById("buy-10").addEventListener("click", () => buyLives(10, 0.90));
@@ -918,14 +918,36 @@
           console.log("✅ Simulation passed – proceeding to real tx");
         } catch (simErr) {
           console.error("🔍 Simulation caught revert:", simErr);
-          let revertMsg = simErr.reason || (simErr.error && simErr.error.message) || simErr.message || "Unknown revert";
-          if (simErr.data && simErr.data.message) revertMsg = simErr.data.message;
+          let revertMsg = "Unknown revert";
+          if (simErr.reason) {
+            revertMsg = simErr.reason;
+          } else if (simErr.data) {
+            if (typeof simErr.data === "string" && simErr.data.startsWith("0x")) {
+              try {
+                const parsed = contract.interface.parseError(simErr.data);
+                if (parsed) {
+                  revertMsg = `${parsed.name}(${parsed.args ? parsed.args.map(a => a.toString()).join(", ") : ""})`;
+                } else {
+                  revertMsg = simErr.data;
+                }
+              } catch (decodeErr) {
+                revertMsg = simErr.data;
+              }
+            } else if (simErr.data.message) {
+              revertMsg = simErr.data.message;
+            }
+          } else if (simErr.error && simErr.error.message) {
+            revertMsg = simErr.error.message;
+          } else if (simErr.message) {
+            revertMsg = simErr.message;
+          }
           console.error("🔍 EXACT REVERT REASON FROM CONTRACT:", revertMsg);
+          console.error("Error code:", simErr.code, "shortMessage:", simErr.shortMessage || "N/A");
         }
 
         // Real transaction (now with full diagnostics)
         const tx = await contract.submitScore(finalScore, playerName);
-        
+         
         console.log("Transaction sent:", tx.hash);
         await tx.wait();
 
