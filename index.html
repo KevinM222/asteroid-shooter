@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.47     -->
+  <!-- Asteroid Shooter - Rev 4.48     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -1150,27 +1150,42 @@
     });
 
     // ==================== ONE-TIME TASKS (New System) ====================
-    function claimOneTimeTask(taskId, buttonId) {
+    // Rev 4.48: Now awards free life ON-CHAIN so UI and contract stay in sync (fixes lives=0 on submit)
+    async function claimOneTimeTask(taskId, buttonId) {
       const completed = localStorage.getItem(`task_${taskId}_completed`);
       if (completed) {
         alert("You've already claimed this task!");
         return;
       }
 
-      // Give 1 free life
+      if (signer && contractsConfigured) {
+        try {
+          const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+          const tx = await contract.awardFreeLives(userAddress, 1);
+          console.log("Awarding free life on-chain...");
+          await tx.wait();
+          console.log("%c✅ Free life awarded on-chain!", "color:#32FF9A");
+        } catch (e) {
+          console.error("On-chain awardFreeLives failed (non-critical)", e);
+        }
+      }
+
+      // Give 1 free life (UI + local backup)
       lives += 1;
-      updateTopBar();
+      await updateTopBar();
 
       // Mark as completed
       localStorage.setItem(`task_${taskId}_completed`, "true");
 
       // Grey out the button
       const btn = document.getElementById(buttonId);
-      btn.innerText = "Completed";
-      btn.disabled = true;
-      btn.style.opacity = "0.6";
+      if (btn) {
+        btn.innerText = "Completed";
+        btn.disabled = true;
+        btn.style.opacity = "0.6";
+      }
 
-      alert("1 free life claimed! Thank you for supporting the project!");
+      alert("1 free life claimed and saved on-chain! Thank you for supporting the project!");
     }
 
     // Load completed tasks on page load
@@ -1193,6 +1208,26 @@
       });
     }
 
+    // Daily claim – now also on-chain
+    document.getElementById("claim-daily").addEventListener("click", async () => {
+      if (signer && contractsConfigured) {
+        try {
+          const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+          const tx = await contract.awardFreeLives(userAddress, 1);
+          console.log("Awarding daily free life on-chain...");
+          await tx.wait();
+          console.log("%c✅ Daily free life awarded on-chain!", "color:#32FF9A");
+        } catch (e) {
+          console.error("On-chain daily award failed (non-critical)", e);
+        }
+      }
+
+      lives += 1;
+      await updateTopBar();
+      localStorage.setItem("daily_claim_time", Date.now().toString());
+      updateDailyClaim();
+      alert("1 free life claimed and saved on-chain!");
+    });
     // Call this when the page loads
     document.addEventListener('DOMContentLoaded', () => {
       loadCompletedTasks();
