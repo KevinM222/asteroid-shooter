@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.48     -->
+  <!-- Asteroid Shooter - Rev 4.49     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -864,6 +864,8 @@
           await new Promise(r => setTimeout(r, 1500));
         } else {
           const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+          // Rev 4.49: diagnostic log so you can see the contract is being called on every buy
+          console.log(`[Buy Lives] Calling contract.buyLives(${amount}) on-chain...`);
           const tx = await contract.buyLives(amount);
           await tx.wait();
         }
@@ -880,7 +882,6 @@
         alert("Failed to buy: " + (err.message || err));
       }
     }
-
     async function submitScoreToChain(finalScore, playerName = "Player") {
       if (!contractsConfigured || !signer || finalScore < 1) return null;
 
