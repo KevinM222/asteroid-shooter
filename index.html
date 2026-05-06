@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.54     -->
+  <!-- Asteroid Shooter - Rev 4.55     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -913,10 +913,26 @@
         const hasMinter = await token.hasRole(MINTER_ROLE, leaderboardAddress);
         console.log(`[Minter Role Check] Leaderboard HAS MINTER_ROLE on AST token: ${hasMinter}`);
 
-        // Rev 4.54: staticCall removed (submitScore does state changes + mints). Real tx now always runs.
+        // Rev 4.55: Diagnostic simulation to surface exact Solidity revert reason (non-blocking)
+        console.log("🔍 Running contract simulation to decode exact revert reason...");
+        try {
+          const txData = await contract.populateTransaction.submitScore(finalScore, playerName);
+          await provider.call({
+            to: leaderboardAddress,
+            data: txData.data,
+            from: userAddress
+          });
+          console.log("✅ Simulation passed – proceeding to real tx");
+        } catch (simErr) {
+          console.error("🔍 Simulation caught revert:", simErr);
+          let revertMsg = simErr.error?.message || simErr.message || "Unknown revert";
+          if (simErr.data) revertMsg = simErr.data.message || simErr.data || revertMsg;
+          console.error("🔍 EXACT REVERT REASON FROM CONTRACT:", revertMsg);
+        }
 
-
+        // Real transaction (now with full diagnostics)
         const tx = await contract.submitScore(finalScore, playerName);
+        
 
         console.log("Transaction sent:", tx.hash);
         await tx.wait();
