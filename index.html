@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.56     -->
+  <!-- Asteroid Shooter - Rev 4.57     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -789,15 +789,21 @@
           await tx.wait();
           waitingMsg.remove();
 
+          // Rev 4.57: Fixed lives double-decrement bug + extra logging
           const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
-          lives = Number(await c.playerLives(userAddress));
+          const livesAfterStart = Number(await c.playerLives(userAddress));
+          console.log(`[Start Game] Lives BEFORE local decrement: ${livesAfterStart}`);
+          lives = livesAfterStart;   // use on-chain value only
           await updateTopBar();
         }
 
-        if (lives > 0) {
-          lives--;
-          await updateTopBar();
-        }
+        // NO extra local lives-- here (startGame already spent the life)
+        console.log(`[Start Game] Lives after start (final): ${lives}`);
+      } catch (err) {
+        console.error('Start game error:', err);
+        alert('Failed to start: ' + (err.message || err));
+        startButton.disabled = false;
+      }
 
         // === FULLSCREEN AFTER TX (Rev 4.39 - safe for mobile/Base App) ===
         const container = document.getElementById('game-container');
