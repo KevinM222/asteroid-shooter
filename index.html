@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.50     -->
+  <!-- Asteroid Shooter - Rev 4.52     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -905,26 +905,14 @@
         const currentLives = Number(await c.playerLives(userAddress));
         console.log(`[Pre-submit check] Current lives on-chain: ${currentLives}`);
 
-        // Rev 4.47: Guard against lives = 0 (fixes "AST never sent" + unnecessary reverts on mobile/Base App)
-        if (currentLives <= 0) {
-          console.log("%c[Submit blocked] Player has 0 lives on-chain", "color:#FF5555");
-          const toast = document.createElement("div");
-          toast.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
-            background:#F7931A; color:#000; padding:14px 22px; border-radius:12px;
-            font-weight:bold; z-index:999999; box-shadow:0 0 25px #F7931A;
-            max-width:92%; text-align:center; font-size:15px;`;
-          toast.innerHTML = `❌ No lives left on-chain!<br><span style="font-size:13px;">Buy lives or claim a free task life above</span>`;
-          document.body.appendChild(toast);
-          setTimeout(() => toast.remove(), 7000);
-          await updateLeaderboard();
-          return null;
-        }
+        // Rev 4.52: NO lives guard (per your request). You can now use your LAST life and still earn AST + leaderboard entry.
+        // startGame already spent the life — submitScore has no lives require in your deployed contract.
 
         const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
         const MINTER_ROLE = await token.MINTER_ROLE();
         const hasMinter = await token.hasRole(MINTER_ROLE, leaderboardAddress);
         console.log(`[Minter Role Check] Leaderboard HAS MINTER_ROLE on AST token: ${hasMinter}`);
-
+        
         // Rev 4.46: Correct ethers v6 staticCall syntax (contract.method.staticCall(...)) – fixes JS error on mobile/Base App
         console.log("Running staticCall to surface exact contract revert reason...");
         try {
