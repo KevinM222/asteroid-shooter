@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.52     -->
+  <!-- Asteroid Shooter - Rev 4.54     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -912,16 +912,9 @@
         const MINTER_ROLE = await token.MINTER_ROLE();
         const hasMinter = await token.hasRole(MINTER_ROLE, leaderboardAddress);
         console.log(`[Minter Role Check] Leaderboard HAS MINTER_ROLE on AST token: ${hasMinter}`);
-        
-        // Rev 4.46: Correct ethers v6 staticCall syntax (contract.method.staticCall(...)) – fixes JS error on mobile/Base App
-        console.log("Running staticCall to surface exact contract revert reason...");
-        try {
-          await contract.submitScore.staticCall(finalScore, playerName);
-          console.log("staticCall passed – proceeding to send real tx");
-        } catch (staticErr) {
-          console.error("staticCall caught revert:", staticErr);
-          throw staticErr; // re-throw so main catch block logs the exact Solidity reason
-        }
+
+        // Rev 4.54: staticCall removed (submitScore does state changes + mints). Real tx now always runs.
+
 
         const tx = await contract.submitScore(finalScore, playerName);
 
