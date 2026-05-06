@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.58     -->
+  <!-- Asteroid Shooter - Rev 4.59     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -947,7 +947,7 @@
 
         // Real transaction (now with full diagnostics)
         const tx = await contract.submitScore(finalScore, playerName);
-         
+
         console.log("Transaction sent:", tx.hash);
         await tx.wait();
 
