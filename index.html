@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.49     -->
+  <!-- Asteroid Shooter - Rev 4.50     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -853,6 +853,14 @@
       if (!signer) return alert("Connect first");
       await checkUsdcApproval(amount);
       try {
+        // Rev 4.50: before/after on-chain lives logging so we can see exactly what the contract returns after buy
+        let livesBefore = 0;
+        if (contractsConfigured && userAddress && provider) {
+          const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+          livesBefore = Number(await c.playerLives(userAddress));
+          console.log(`[Buy Lives] Lives BEFORE buy: ${livesBefore}`);
+        }
+
         if (sdk) {
           const receipt = await sdk.pay({
             amount: usdPrice.toString(),
@@ -864,14 +872,16 @@
           await new Promise(r => setTimeout(r, 1500));
         } else {
           const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-          // Rev 4.49: diagnostic log so you can see the contract is being called on every buy
           console.log(`[Buy Lives] Calling contract.buyLives(${amount}) on-chain...`);
           const tx = await contract.buyLives(amount);
           await tx.wait();
         }
+
+        // Refresh after buy with explicit log
         if (contractsConfigured) {
           const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
           lives = Number(await c.playerLives(userAddress));
+          console.log(`[Buy Lives] Lives AFTER buy: ${lives}`);
         }
         await updateTopBar();
         updatePrizePot();
@@ -882,6 +892,7 @@
         alert("Failed to buy: " + (err.message || err));
       }
     }
+
     async function submitScoreToChain(finalScore, playerName = "Player") {
       if (!contractsConfigured || !signer || finalScore < 1) return null;
 
