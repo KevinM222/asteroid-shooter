@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.61     -->
+  <!-- Asteroid Shooter - Rev 4.61 (Clean)     -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -66,7 +66,7 @@
       text-shadow: 0 0 8px #F7931A;
     }
 
-    /* === v4.60: Game takeover mode (minimal) === */
+    /* === v4.61: Game takeover mode === */
     body.game-mode #identity-bar,
     body.game-mode h1,
     body.game-mode #connect-wallet,
@@ -83,12 +83,10 @@
       margin: 0 auto !important;
       border: 4px solid #32FF9A;
       box-shadow: 0 0 40px #32FF9A, 0 0 80px #F7931A;
-      animation: pulse-border 1.5s infinite alternate;}
-
+    }
   </style>
 </head>
 <body>
-  <!-- (identity-bar, h1, buttons, infos, game-container, results, tasks, leaderboard, etc. – EXACTLY same as your previous version) -->
   <div id="identity-bar">
     <img id="avatar" src="" alt="Avatar" style="display:none;width:32px;height:32px;border-radius:50%;border:2px solid #00ff00;">
     <div class="status-items">
@@ -124,27 +122,17 @@
 
   <div id="game-container"></div>
 
-  <!-- results-overlay, new-high-banner, tasks-section, leaderboard, ast-facts, share-score – unchanged -->
-
   <div id="results-overlay" style="background: rgba(0, 0, 0, 0.95); display: none;">
     <div style="max-width: 320px; margin: 40px auto; padding: 24px; background: #0A0F2E; border: 3px solid #0052FF; border-radius: 16px; box-shadow: 0 0 30px #0052FF, 0 0 50px #F7931A;">
-      
       <h2 id="results-title" style="font-size:2.4rem; margin: 0 0 12px; color:#F7931A;">GAME OVER</h2>
-      
       <div id="results-score" style="font-size:2.2rem; margin: 8px 0; color:#fff;">Score: 0</div>
-      
       <div id="results-ast" style="font-size:1.5rem; margin: 8px 0; color:#32FF9A; font-weight: 600;">+0 AST sent to your wallet!</div>
-      
-      <div id="results-tx" style="font-size:13px; margin: 4px 0 16px; color:#888; word-break: break-all;">
-        <!-- tx hash appears here -->
-      </div>
-
+      <div id="results-tx" style="font-size:13px; margin: 4px 0 16px; color:#888; word-break: break-all;"></div>
       <div style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
         <button id="play-again-btn" style="font-size:18px; padding:14px 40px; width: 240px; border-color:#F7931A; background: linear-gradient(45deg, #0A0F2E, #111);">Play Again (1 Life)</button>
         <button id="return-home-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: #111; border: 2px solid #555;">← Return to Home</button>
         <button id="share-base-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: linear-gradient(45deg, #0A0F2E, #111); border: 2px solid #32FF9A; color:#32FF9A;">🚀 Share on Base</button>
       </div>
-      
     </div>
   </div>
 
@@ -152,29 +140,20 @@
 
   <div id="tasks-section" style="text-align: center;">
     <h3 style="color:#F7931A; text-shadow: 0 0 8px #F7931A;">Earn Free Lives (One-Time Tasks)</h3>
-  
     <div style="margin: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 10px;">
-      
-      <!-- Task 1: Follow on X -->
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
         <a href="https://x.com/kevinmm8222" target="_blank" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow @kevinmm8222 on X</a>
         <button id="task-x" onclick="claimOneTimeTask(1, 'task-x')">Claim Life</button>
       </div>
-    
-      <!-- Task 2: Follow on Base App -->
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
         <a href="https://base.app/profile/kevinmmm.base.eth" target="_blank" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow kevinmmm.base.eth on Base App</a>
         <button id="task-base" onclick="claimOneTimeTask(2, 'task-base')">Claim Life</button>
       </div>
-    
-      <!-- Task 3: Try Accumulator -->
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
         <a href="https://accumulator-8.vercel.app/" target="_blank" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other mini app: Accumulator</a>
         <button id="task-accumulator" onclick="claimOneTimeTask(3, 'task-accumulator')">Claim Life</button>
       </div>
-      
     </div>
-  
     <div style="margin-top: 16px; border-top: 1px solid #0052FF; padding-top: 12px;">
       <button id="claim-daily">Claim Daily Life</button>
       <span id="daily-timer" style="color:#F7931A;">Ready!</span>
@@ -188,23 +167,20 @@
 
   <div id="ast-facts">AST Facts: Loading...</div>
 
-  
-
-  <!-- libs unchanged -->
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script src="https://unpkg.com/ethers@6.11.1/dist/ethers.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@coinbase/minikit@latest/dist/minikit.umd.js"></script>
 
   <script>
-    // globals
+    // === v4.61 CLEAN VERSION ===
     const ethers = window.ethers;
     let sdk, provider, signer, userAddress;
     let isConnecting = false;
 
-    // contracts – replace with your real deployed addresses (Sepolia)
     const leaderboardAddress = "0xEFd9a0865306244d4F5227F0eBA2679Dd6d47E6A";
     const tokenAddress = "0xcEFB2484932595ffFC809a27B8A5b106A8E1715A";
-    const usdcAddress = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base mainnet USDC
+    const usdcAddress = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+
     const isAddr = (a) => typeof a === "string" && /^0x[a-fA-F0-9]{40}$/.test(a);
     const contractsConfigured = isAddr(leaderboardAddress) && isAddr(tokenAddress) && isAddr(usdcAddress);
 
@@ -216,11 +192,11 @@
       'function getTopScores(uint256 count) external view returns (tuple(address player, uint256 score, string playerName)[] memory)',
       'function hasFreeGame(address) external pure returns (bool)',
       'function playerLives(address) view returns (uint256)',
-      'function playerHighScore(address) view returns (uint256)', // ADDED FOR OUTLINE
+      'function playerHighScore(address) view returns (uint256)',
       'function allTimeHigh() view returns (uint256)',
       'function distributePrizes() external',
       'function lifePrice() view returns (uint256)',
-      'function mintReward(address player, uint256 amount) external', // ADDED FOR AST REWARDS (update contract if needed)
+      'function mintReward(address player, uint256 amount) external',
       'event LivesBought(address indexed player, uint256 amount)',
       'event ATHBeaten(address indexed player, uint256 score)'
     ];
@@ -230,7 +206,6 @@
       'function totalSupply() view returns (uint256)',
       'function mint(address to, uint256 amount) external',
       'function grantMinterRole(address minter) external',
-      // Rev 4.41 – added for MINTER_ROLE diagnostic (mobile/Base App debugging)
       'function hasRole(bytes32 role, address account) view returns (bool)',
       'function MINTER_ROLE() view returns (bytes32)'
     ];
@@ -241,37 +216,32 @@
       'function balanceOf(address) view returns (uint256)'
     ];
 
-    // MiniKit init (per https://docs.base.org/base-app/build-with-minikit/)
     async function initSdk() {
       sdk = window.MiniKit?.default || window.MiniKit;
       if (sdk) {
         await sdk.ready();
-        console.log('MiniKit ready – Base Mini App ready for Farcaster/Base wallet');
+        console.log('MiniKit ready');
       } else {
         console.log('MiniKit not available – using MetaMask fallback');
       }
     }
     initSdk();
 
-    // gameplay state
     let gameplayActive = false;
     const MAX_SHIELDS = 3;
     const MISSES_ALLOWED = 3;
-    let lives = 3; // Guest mode start
+    let lives = 3;
     let shields = MAX_SHIELDS;
     let misses = 0;
     let score = 0;
     let speedRampTimer = null;
     let speedMultiplier = 1.0;
-    let gameOverText = null;
-    let gameOverSub = null;
     let canShoot = true;
     let ship, asteroids, lazerGroup, keys, spaceKey;
     let stars = [];
     let baseScale = 1.0;
-    let personalHighScore = 0; // ADDED FOR OUTLINE – personal high score sync
+    let personalHighScore = 0;
 
-    // ADDED FOR OUTLINE: results overlay helpers
     function showResultsOverlay(finalScore, astEarned, txHash = null) {
       const overlay = document.getElementById('results-overlay');
       document.getElementById('results-score').innerText = `Score: ${finalScore}`;
@@ -284,16 +254,14 @@
       } else {
         txDiv.innerHTML = '';
       }
-
       overlay.style.display = 'block';
 
-      // Add-to-MetaMask handler
       setTimeout(() => {
         const btn = document.getElementById('add-ast-metamask');
         if (btn) btn.addEventListener('click', addASTToMetaMask);
       }, 100);
     }
-    
+
     function hideResultsOverlay() {
       document.getElementById('results-overlay').style.display = 'none';
     }
@@ -304,15 +272,10 @@
       setTimeout(() => { banner.style.display = 'none'; }, 3000);
     }
 
-    // Proper Phaser Scene class
     class GameScene extends Phaser.Scene {
-      constructor() {
-        super({ key: 'GameScene' });
-      }
+      constructor() { super({ key: 'GameScene' }); }
 
-      preload() {
-        console.log('Preload complete – procedural only');
-      }
+      preload() { console.log('Preload complete – procedural only'); }
 
       create() {
         const width = this.scale.width;
@@ -327,7 +290,7 @@
           const speed = [0.5, 1.1, 2.4][layer];
           const alpha = [0.4, 0.65, 0.95][layer];
           const size = [1, 1.6, 2.2][layer] * baseScale;
-          const color = [0xffffff, 0x4488FF, 0x32FF9A][layer]; // white → Base Blue → Lime
+          const color = [0xffffff, 0x4488FF, 0x32FF9A][layer];
           for (let i = 0; i < numStars; i++) {
             let star = this.add.graphics({ x: Math.random() * width, y: Math.random() * height });
             star.fillStyle(color, alpha);
@@ -337,34 +300,29 @@
           }
         }
 
-        // Full detailed spaceship – Base Blue body + BTC Orange outline + white cockpit + dual lime thrusters
         ship = this.add.graphics({ x: width / 2, y: height * 0.85 });
         const shipScale = baseScale * 1.5;
 
-        // Main body (pointed nose + wings)
         ship.fillStyle(0x0052FF, 1);
         ship.lineStyle(3, 0xF7931A, 1);
         ship.beginPath();
-        ship.moveTo(0, -28 * shipScale);           // nose
-        ship.lineTo(22 * shipScale, 14 * shipScale);     // right wing tip
-        ship.lineTo(10 * shipScale, 22 * shipScale);     // right thruster indent
-        ship.lineTo(0, 16 * shipScale);                  // center bottom
-        ship.lineTo(-10 * shipScale, 22 * shipScale);    // left thruster indent
-        ship.lineTo(-22 * shipScale, 14 * shipScale);    // left wing tip
+        ship.moveTo(0, -28 * shipScale);
+        ship.lineTo(22 * shipScale, 14 * shipScale);
+        ship.lineTo(10 * shipScale, 22 * shipScale);
+        ship.lineTo(0, 16 * shipScale);
+        ship.lineTo(-10 * shipScale, 22 * shipScale);
+        ship.lineTo(-22 * shipScale, 14 * shipScale);
         ship.closePath();
         ship.fillPath();
         ship.strokePath();
 
-        // White cockpit highlight
         ship.fillStyle(0xFFFFFF, 0.9);
         ship.fillCircle(0, -8 * shipScale, 5 * shipScale);
 
-        // Dual lime thrusters
         ship.fillStyle(0x32FF9A, 0.85);
         ship.fillTriangle(-8 * shipScale, 18 * shipScale, -2 * shipScale, 18 * shipScale, -5 * shipScale, 28 * shipScale);
-        ship.fillTriangle( 2 * shipScale, 18 * shipScale,  8 * shipScale, 18 * shipScale,  5 * shipScale, 28 * shipScale);
+        ship.fillTriangle(2 * shipScale, 18 * shipScale, 8 * shipScale, 18 * shipScale, 5 * shipScale, 28 * shipScale);
 
-        // Orange inner flame
         ship.fillStyle(0xF7931A, 0.75);
         ship.fillTriangle(-5 * shipScale, 20 * shipScale, 5 * shipScale, 20 * shipScale, 0, 26 * shipScale);
 
@@ -382,12 +340,9 @@
         this.physics.add.overlap(ship, asteroids, this.hitShip, null, this);
         this.physics.add.overlap(lazerGroup, asteroids, this.destroyAsteroid, null, this);
 
-        // ==================== CONTROLS ====================
         keys = this.input.keyboard.createCursorKeys();
         spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
-        // Desktop: Arrow keys (already works in update())
-        // Mobile: Touch drag to move ship
         this.input.on('pointermove', (pointer) => {
           if (gameplayActive && pointer.isDown) {
             const targetX = Phaser.Math.Clamp(pointer.x, 25, this.scale.width - 25);
@@ -396,7 +351,6 @@
           }
         });
 
-        // Extra: Tap anywhere to move ship (helps on some phones)
         this.input.on('pointerdown', (pointer) => {
           if (gameplayActive) {
             const targetX = Phaser.Math.Clamp(pointer.x, 25, this.scale.width - 25);
@@ -405,33 +359,23 @@
           }
         });
 
-                // ==================== TILT CONTROLS (FIXED ORDER) ====================
         this.tiltEnabled = false;
         this.tiltValue = 0;
 
-        // Define FIRST so it exists when called
         this.startTiltControls = () => {
           this.tiltEnabled = true;
           window.addEventListener('deviceorientation', (event) => {
-            if (event.beta !== null) {
-              this.tiltValue = event.gamma;
-            }
+            if (event.beta !== null) this.tiltValue = event.gamma;
           });
           console.log('%c[Gyro] Tilt controls enabled!', 'color:#32FF9A');
         };
 
-        // Only try tilt on mobile devices
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-        
         if (isMobile && window.DeviceOrientationEvent) {
           if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            DeviceOrientationEvent.requestPermission()
-              .then(permissionState => {
-                if (permissionState === 'granted') {
-                  this.startTiltControls();
-                }
-              })
-              .catch(console.error);
+            DeviceOrientationEvent.requestPermission().then(permissionState => {
+              if (permissionState === 'granted') this.startTiltControls();
+            }).catch(console.error);
           } else {
             this.startTiltControls();
           }
@@ -448,15 +392,11 @@
           if (star.y > height) star.y = 0;
         });
 
-        // Ship movement: Keyboard (desktop) + Tilt (mobile)
         const moveSpeed = 5 / baseScale;
-
         if (this.tiltEnabled && Math.abs(this.tiltValue) > 5) {
-          // Tilt mode (phone)
           const tiltSpeed = (this.tiltValue / 90) * 8;
           ship.x += tiltSpeed;
         } else {
-          // Keyboard mode (desktop)
           if (keys.left.isDown) ship.x -= moveSpeed;
           else if (keys.right.isDown) ship.x += moveSpeed;
         }
@@ -474,6 +414,7 @@
           asteroid.setPosition(asteroid.body.x, asteroid.body.y);
           asteroid.rotation += 0.05;
         });
+
         lazerGroup.getChildren().forEach(laser => {
           laser.setPosition(laser.body.x, laser.body.y);
           if (laser.y < 0) laser.destroy();
@@ -484,9 +425,7 @@
             asteroid.destroy();
             misses++;
             updateScoreDisplay();
-            if (misses >= MISSES_ALLOWED) {
-              this.gameOver();
-            }
+            if (misses >= MISSES_ALLOWED) this.gameOver();
           }
         });
       }
@@ -494,7 +433,6 @@
       shootLaser() {
         const laserScale = baseScale;
         const laser = this.add.graphics({ x: ship.x, y: ship.y - 22 * laserScale });
-        // Lime energy beam with BTC Orange core
         laser.fillStyle(0x32FF9A, 1);
         laser.fillRect(-2.5 * laserScale, -12 * laserScale, 5 * laserScale, 26 * laserScale);
         laser.fillStyle(0xF7931A, 0.9);
@@ -513,13 +451,11 @@
         const x = Phaser.Math.Between(20 * astScale, width - 20 * astScale);
         const asteroid = this.add.graphics({ x: x, y: -45 * astScale });
         
-        // Dark space rock + BTC Orange rim glow
         asteroid.fillStyle(0x3A3F5A, 1);
         asteroid.lineStyle(2.5, 0xF7931A, 0.9);
         asteroid.fillCircle(0, 0, 20 * astScale);
         asteroid.strokeCircle(0, 0, 20 * astScale);
         
-        // Craters + occasional lime sparkle
         asteroid.fillStyle(0x1F2438, 1);
         asteroid.fillCircle(-5 * astScale, -7 * astScale, 4 * astScale);
         asteroid.fillCircle(6 * astScale, 5 * astScale, 5 * astScale);
@@ -533,7 +469,6 @@
         asteroids.add(asteroid);
         asteroid.body.setSize(38 * astScale, 38 * astScale);
         asteroid.body.setAllowGravity(false);
-        // Start slow (120), then gradually get faster
         const baseSpeed = 120;
         const currentSpeed = baseSpeed + (speedMultiplier * 45);
         asteroid.body.setVelocityY(currentSpeed * astScale);
@@ -543,38 +478,31 @@
         asteroid.destroy();
         shields = Math.max(0, shields - 1);
         updateTopBar().catch(console.error);
-        
         if (shields <= 0) {
           shields = MAX_SHIELDS;
           misses++;
           updateScoreDisplay();
-          this.gameOver(); // always end game when shields hit 0
+          this.gameOver();
         }
       }
 
       destroyAsteroid(laser, asteroid) {
         if (laser) laser.destroy();
         if (asteroid) asteroid.destroy();
-
         score += 12;
         updateScoreDisplay();
 
-        // Small hit effect (lime + orange)
         const hitX = asteroid ? asteroid.x : laser.x;
         const hitY = asteroid ? asteroid.y : laser.y;
-
         const effect = this.add.graphics({ x: hitX, y: hitY });
         effect.fillStyle(0x32FF9A, 0.8);
         effect.fillCircle(0, 0, 8);
         effect.fillStyle(0xF7931A, 0.6);
         effect.fillCircle(0, 0, 4);
-
-        this.time.delayedCall(100, () => {
-          if (effect) effect.destroy();
-        });
+        this.time.delayedCall(100, () => { if (effect) effect.destroy(); });
       }
 
-      // === v4.61: gameOver() correctly inside GameScene class (fixed placement) ===
+      // === v4.61: gameOver() correctly inside class ===
       gameOver() {
         gameplayActive = false;
         if (this.shootTimer) this.shootTimer.paused = true;
@@ -619,18 +547,11 @@
       parent: 'game-container',
       width: 800,
       height: 500,
-      scale: { 
-        mode: Phaser.Scale.RESIZE,
-        autoCenter: Phaser.Scale.CENTER_BOTH
-      },
-      physics: {
-        default: 'arcade',
-        arcade: { gravity: { y: 0 }, debug: false }
-      },
+      scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
+      physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
       scene: GameScene
     });
 
-    // Resize handler (cleaned for testing – no spam)
     let lastResizeWidth = 0;
     game.scale.on('resize', function(gameSize) {
       const width = gameSize.width;
@@ -648,41 +569,29 @@
       }
     });
 
-    // IMPROVED optimizeGameSize – now conservative so Connect/Start buttons always visible
     function optimizeGameSize() {
       const container = document.getElementById('game-container');
       const viewportH = window.innerHeight;
-      
-      // Measure actual top content height (identity + h1 + buttons + infos)
       let fixedTop = 0;
       const topElements = ['#identity-bar', 'h1', '#connect-wallet', '#fee-info', '#prize-info', '#score-display'];
       topElements.forEach(sel => {
         const el = document.querySelector(sel);
-        if (el) fixedTop += el.offsetHeight + 12; // small gaps
+        if (el) fixedTop += el.offsetHeight + 12;
       });
-      
-      let targetH = Math.max(380, Math.min(520, viewportH - fixedTop - 180)); // 180px reserved for tasks/leaderboard on short screens
+      let targetH = Math.max(380, Math.min(520, viewportH - fixedTop - 180));
       container.style.height = `${targetH}px`;
       if (game && game.scale) game.scale.refresh();
-      
-      console.log(`[MiniKit mobile fix] Game height set to ${targetH}px (viewport ${viewportH}px, top reserved ${fixedTop}px)`);
     }
 
-    // Call on resize, connect, and start
     window.addEventListener('resize', optimizeGameSize);
     window.addEventListener('orientationchange', () => setTimeout(optimizeGameSize, 250));
 
-    // ADD these two lines in your existing code (already in previous version, just confirming):
-    // Inside connect-wallet success (after Promise.all(...)):   optimizeGameSize();
-    // Inside start-game "GO!" delayedCall:                     setTimeout(optimizeGameSize, 600);
-
-    // DOM ready – first layout fix
     document.addEventListener('DOMContentLoaded', () => {
       updateTopBar();
       updateScoreDisplay();
-      setTimeout(optimizeGameSize, 100); // immediate fix for Chrome mobile view
+      setTimeout(optimizeGameSize, 100);
     });
-    // UI updates
+
     function updateScoreDisplay() {
       document.getElementById('score-display').innerText = `Score: ${score} | Missed: ${misses}/${MISSES_ALLOWED}`;
     }
@@ -703,7 +612,6 @@
       } catch (e) { console.error('Personal high fetch error', e); }
     }
 
-    // Connect wallet + FULL personalization + sync (per outline + MiniKit docs)
     document.getElementById('connect-wallet').addEventListener('click', async () => {
       if (isConnecting) return;
       isConnecting = true;
@@ -724,18 +632,14 @@
           await provider.send("eth_requestAccounts", []);
           signer = await provider.getSigner();
           userAddress = await signer.getAddress();
-        const network = await provider.getNetwork();
-        if (Number(network.chainId) !== 8453) {   // ← FIXED: 8453 = Base mainnet
-          await window.ethereum.request({ 
-            method: "wallet_switchEthereumChain", 
-            params: [{ chainId: "0x2105" }]   // ← FIXED: 0x2105 = Base mainnet
-          });
-        }
+          const network = await provider.getNetwork();
+          if (Number(network.chainId) !== 8453) {
+            await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
+          }
         } else {
           throw new Error('No wallet detected');
         }
 
-        // Personalization: name + avatar from Base/Farcaster wallet context (MiniKit)
         let displayName = userAddress.slice(0,6) + '...' + userAddress.slice(-4);
         let avatarUrl = '';
         if (sdk && sdk.context && sdk.context.user) {
@@ -760,11 +664,8 @@
             const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
             const onChainLives = await c.playerLives(userAddress);
             lives = Number(onChainLives) || 3;
-          } catch (e) {
-            lives = 3;
-          }
+          } catch (e) { lives = 3; }
 
-          // Run these safely (ignore network switch errors)
           await Promise.allSettled([
             updateTopBar().catch(() => {}),
             updatePersonalHighScore().catch(() => {}),
@@ -774,10 +675,9 @@
             updateAstFacts().catch(() => {})
           ]);
         }
-        updateDailyClaim();   // refresh daily life timer after connect
+        updateDailyClaim();
       } catch (err) {
-        console.error('Connect error (non-critical):', err.message);
-        // No alert shown — connection still succeeds with fallback lives
+        console.error('Connect error:', err.message);
         button.innerText = prevText;
         button.disabled = false;
       } finally {
@@ -785,75 +685,68 @@
       }
     });
 
-// === v4.60: Game takeover + proper restore (minimal targeted) ===
-let startButton = document.getElementById("start-game");
-startButton.addEventListener("click", async () => {
-  if (!userAddress) return alert("Connect wallet first");
-  if (lives <= 0) return alert("No lives left! Buy more or complete tasks.");
+    let startButton = document.getElementById("start-game");
+    startButton.addEventListener("click", async () => {
+      if (!userAddress) return alert("Connect wallet first");
+      if (lives <= 0) return alert("No lives left! Buy more or complete tasks.");
 
-  if (!confirm(`Spend 1 life to start Asteroid Shooter?\nLives remaining: ${lives}`)) {
-    startButton.disabled = false;
-    return;
-  }
+      if (!confirm(`Spend 1 life to start Asteroid Shooter?\nLives remaining: ${lives}`)) {
+        startButton.disabled = false;
+        return;
+      }
 
-  startButton.disabled = true;
-  const playerName = sdk?.context?.user?.username || document.getElementById('whoami').innerText || "Guest";
+      startButton.disabled = true;
+      const playerName = sdk?.context?.user?.username || document.getElementById('whoami').innerText || "Guest";
 
-  try {
-    if (contractsConfigured && signer) {
-      const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-      const tx = await contract.startGame(playerName);
-      const waitingMsg = document.createElement('div');
-      waitingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#111;color:#32FF9A;padding:16px 24px;border-radius:12px;border:2px solid #0052FF;z-index:9999;';
-      waitingMsg.innerText = 'Waiting for wallet confirmation...';
-      document.body.appendChild(waitingMsg);
-      await tx.wait();
-      waitingMsg.remove();
+      try {
+        if (contractsConfigured && signer) {
+          const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+          const tx = await contract.startGame(playerName);
+          const waitingMsg = document.createElement('div');
+          waitingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#111;color:#32FF9A;padding:16px 24px;border-radius:12px;border:2px solid #0052FF;z-index:9999;';
+          waitingMsg.innerText = 'Waiting for wallet confirmation...';
+          document.body.appendChild(waitingMsg);
+          await tx.wait();
+          waitingMsg.remove();
 
-      const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
-      lives = Number(await c.playerLives(userAddress));
-      console.log(`[Start Game v4.60] Lives after on-chain spend: ${lives}`);
-      await updateTopBar();
-    }
+          const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+          lives = Number(await c.playerLives(userAddress));
+          console.log(`[Start Game v4.61] Lives after on-chain spend: ${lives}`);
+          await updateTopBar();
+        }
 
-    // === v4.60 GAME TAKEOVER ===
-    document.body.classList.add('game-mode');
-    const container = document.getElementById('game-container');
-    try { if (container.requestFullscreen) await container.requestFullscreen(); } catch(e){}
+        document.body.classList.add('game-mode');
+        const container = document.getElementById('game-container');
+        try { if (container.requestFullscreen) await container.requestFullscreen(); } catch(e){}
 
-    const sceneInstance = game.scene.scenes[0];
-    setTimeout(() => {
-      const countdownText = sceneInstance.add.text(sceneInstance.scale.width / 2, sceneInstance.scale.height / 2, "3", { 
-        fontSize: `${Math.max(48 * baseScale, 60)}px`, fill: "#32FF9A", fontStyle: "bold",
-        stroke: "#F7931A", strokeThickness: 3 
-      }).setOrigin(0.5).setDepth(10);
+        const sceneInstance = game.scene.scenes[0];
+        setTimeout(() => {
+          const countdownText = sceneInstance.add.text(sceneInstance.scale.width / 2, sceneInstance.scale.height / 2, "3", { 
+            fontSize: `${Math.max(48 * baseScale, 60)}px`, fill: "#32FF9A", fontStyle: "bold",
+            stroke: "#F7931A", strokeThickness: 3 
+          }).setOrigin(0.5).setDepth(10);
 
-      sceneInstance.time.delayedCall(1000, () => countdownText.setText("2"));
-      sceneInstance.time.delayedCall(2000, () => countdownText.setText("1"));
-      sceneInstance.time.delayedCall(3000, () => {
-        countdownText.setText("GO!");
-        sceneInstance.time.delayedCall(500, () => {
-          countdownText.destroy();
-          gameplayActive = true;
-          sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
-            delay: 1000, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
+          sceneInstance.time.delayedCall(1000, () => countdownText.setText("2"));
+          sceneInstance.time.delayedCall(2000, () => countdownText.setText("1"));
+          sceneInstance.time.delayedCall(3000, () => {
+            countdownText.setText("GO!");
+            sceneInstance.time.delayedCall(500, () => {
+              countdownText.destroy();
+              gameplayActive = true;
+              sceneInstance.spawnTimer = sceneInstance.time.addEvent({ delay: 1000, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true });
+              sceneInstance.shootTimer = sceneInstance.time.addEvent({ delay: 250, callback: sceneInstance.shootLaser, callbackScope: sceneInstance, loop: true });
+            });
           });
-          sceneInstance.shootTimer = sceneInstance.time.addEvent({ 
-            delay: 250, callback: sceneInstance.shootLaser, callbackScope: sceneInstance, loop: true 
-          });
-        });
-      });
-    }, 300);
+        }, 300);
 
-  } catch (err) {
-    console.error('Start game error:', err);
-    alert('Failed to start: ' + (err.message || err));
-    startButton.disabled = false;
-    document.body.classList.remove('game-mode'); // restore on failure
-  }
-});
+      } catch (err) {
+        console.error('Start game error:', err);
+        alert('Failed to start: ' + (err.message || err));
+        startButton.disabled = false;
+        document.body.classList.remove('game-mode');
+      }
+    });
 
-    // Buy Lives (unchanged except post-buy refresh)
     document.getElementById("buy-1").addEventListener("click", () => buyLives(1, 0.10));
     document.getElementById("buy-10").addEventListener("click", () => buyLives(10, 0.90));
     document.getElementById("buy-25").addEventListener("click", () => buyLives(25, 2.25));
@@ -863,35 +756,18 @@ startButton.addEventListener("click", async () => {
       if (!signer) return alert("Connect first");
       await checkUsdcApproval(amount);
       try {
-        // Rev 4.50: before/after on-chain lives logging so we can see exactly what the contract returns after buy
-        let livesBefore = 0;
-        if (contractsConfigured && userAddress && provider) {
-          const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
-          livesBefore = Number(await c.playerLives(userAddress));
-          console.log(`[Buy Lives] Lives BEFORE buy: ${livesBefore}`);
-        }
-
         if (sdk) {
-          const receipt = await sdk.pay({
-            amount: usdPrice.toString(),
-            currency: 'USD',
-            recipient: leaderboardAddress
-          });
+          const receipt = await sdk.pay({ amount: usdPrice.toString(), currency: 'USD', recipient: leaderboardAddress });
           if (receipt.status !== "success") throw new Error('Payment failed');
-          // Wait a moment for on-chain update
           await new Promise(r => setTimeout(r, 1500));
         } else {
           const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-          console.log(`[Buy Lives] Calling contract.buyLives(${amount}) on-chain...`);
           const tx = await contract.buyLives(amount);
           await tx.wait();
         }
-
-        // Refresh after buy with explicit log
         if (contractsConfigured) {
           const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
           lives = Number(await c.playerLives(userAddress));
-          console.log(`[Buy Lives] Lives AFTER buy: ${lives}`);
         }
         await updateTopBar();
         updatePrizePot();
@@ -905,98 +781,28 @@ startButton.addEventListener("click", async () => {
 
     async function submitScoreToChain(finalScore, playerName = "Player") {
       if (!contractsConfigured || !signer || finalScore < 1) return null;
-
       try {
         const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-        console.log("Submitting score:", finalScore, "name:", playerName);
-
-        // Rev 4.43 pre-checks (still here)
-        const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
-        const currentLives = Number(await c.playerLives(userAddress));
-        console.log(`[Pre-submit check] Current lives on-chain: ${currentLives}`);
-
-        // Rev 4.52: NO lives guard (per your request). You can now use your LAST life and still earn AST + leaderboard entry.
-        // startGame already spent the life — submitScore has no lives require in your deployed contract.
-
-        const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
-        const MINTER_ROLE = await token.MINTER_ROLE();
-        const hasMinter = await token.hasRole(MINTER_ROLE, leaderboardAddress);
-        console.log(`[Minter Role Check] Leaderboard HAS MINTER_ROLE on AST token: ${hasMinter}`);
-
-        // Rev 4.56: Correct ethers v6 staticCall diagnostic (surfaces exact Solidity revert reason)
-        console.log("🔍 Running contract simulation to decode exact revert reason...");
-        try {
-          await contract.submitScore.staticCall(finalScore, playerName);
-          console.log("✅ Simulation passed – proceeding to real tx");
-        } catch (simErr) {
-          console.error("🔍 Simulation caught revert:", simErr);
-          let revertMsg = "Unknown revert";
-          if (simErr.reason) {
-            revertMsg = simErr.reason;
-          } else if (simErr.data) {
-            if (typeof simErr.data === "string" && simErr.data.startsWith("0x")) {
-              try {
-                const parsed = contract.interface.parseError(simErr.data);
-                if (parsed) {
-                  revertMsg = `${parsed.name}(${parsed.args ? parsed.args.map(a => a.toString()).join(", ") : ""})`;
-                } else {
-                  revertMsg = simErr.data;
-                }
-              } catch (decodeErr) {
-                revertMsg = simErr.data;
-              }
-            } else if (simErr.data.message) {
-              revertMsg = simErr.data.message;
-            }
-          } else if (simErr.error && simErr.error.message) {
-            revertMsg = simErr.error.message;
-          } else if (simErr.message) {
-            revertMsg = simErr.message;
-          }
-          console.error("🔍 EXACT REVERT REASON FROM CONTRACT:", revertMsg);
-          console.error("Error code:", simErr.code, "shortMessage:", simErr.shortMessage || "N/A");
-        }
-
-        // Real transaction (now with full diagnostics)
         const tx = await contract.submitScore(finalScore, playerName);
-
-        console.log("Transaction sent:", tx.hash);
         await tx.wait();
-
-        console.log("%c[Success] Score recorded + AST minted on-chain!", "color:#32FF9A");
         await Promise.all([updateLeaderboard(), getTokenBalance(), updateAstFacts()]);
         return tx.hash;
-
       } catch (err) {
-        console.error("=== SCORE SUBMISSION FAILED ===", err);
-
-        // Rev 4.45: Aggressive revert extraction for Base mainnet
-        let revertMsg = err.reason || err.message || "Unknown error";
-        if (err.data) {
-          if (err.data.message) revertMsg = err.data.message;
-          else if (typeof err.data === "string") revertMsg = err.data;
-        }
-        if (err.error && err.error.message) revertMsg = err.error.message;
-        console.error("Exact revert reason from contract:", revertMsg);
-
+        console.error("Score submission failed:", err);
         const toast = document.createElement("div");
-        toast.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
-          background:#F7931A; color:#000; padding:14px 22px; border-radius:12px;
-          font-weight:bold; z-index:999999; box-shadow:0 0 25px #F7931A;
-          max-width:92%; text-align:center; font-size:15px;`;
-        toast.innerHTML = `✅ Score saved locally<br><span style="font-size:12px;opacity:0.8;">(on-chain failed: ${revertMsg})</span>`;
+        toast.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:#F7931A; color:#000; padding:14px 22px; border-radius:12px; font-weight:bold; z-index:999999;`;
+        toast.innerHTML = `✅ Score saved locally<br><span style="font-size:12px;opacity:0.8;">(on-chain issue)</span>`;
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 8000);
-
+        setTimeout(() => toast.remove(), 6000);
         await updateLeaderboard();
         return null;
       }
-    }   
-    // ADDED FOR OUTLINE: New high score detection + banner
+    }
+
     async function checkNewHighScoreAndShowBanner(finalScore) {
       await updatePersonalHighScore();
       if (finalScore > personalHighScore) {
-        personalHighScore = finalScore; // update local value immediately
+        personalHighScore = finalScore;
         showNewHighBanner();
       }
     }
@@ -1068,15 +874,12 @@ startButton.addEventListener("click", async () => {
       }
     }
 
-    // ==================== DAILY LIFE ONLY ====================
     function updateDailyClaim() {
       const now = Date.now();
       const lastClaim = parseInt(localStorage.getItem("daily_claim_time") || "0");
       const timeLeft = 86400000 - (now - lastClaim);
-
       const btn = document.getElementById("claim-daily");
       const timer = document.getElementById("daily-timer");
-
       if (timeLeft > 0) {
         btn.disabled = true;
         const h = Math.floor(timeLeft / 3600000);
@@ -1087,19 +890,23 @@ startButton.addEventListener("click", async () => {
         timer.innerText = "Ready!";
       }
     }
-
-    // Live update every minute
     setInterval(updateDailyClaim, 60000);
 
     document.getElementById("claim-daily").addEventListener("click", async () => {
+      if (signer && contractsConfigured) {
+        try {
+          const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+          const tx = await contract.awardFreeLives(userAddress, 1);
+          await tx.wait();
+        } catch (e) { console.error("On-chain daily award failed", e); }
+      }
       lives += 1;
       await updateTopBar();
       localStorage.setItem("daily_claim_time", Date.now().toString());
       updateDailyClaim();
-      alert("1 free life claimed!");
+      alert("1 free life claimed and saved on-chain!");
     });
 
-    // ==================== SHARE ON BASE (Rev 2) ====================
     async function shareOnBase(theScore) {
       try {
         await sdk?.actions?.composeCast?.({
@@ -1108,53 +915,21 @@ startButton.addEventListener("click", async () => {
         });
         alert("Score shared on Base App!");
       } catch (err) {
-        console.error("Share error:", err);
-        // Fallback
         window.open(`https://base.app/compose?text=Just+scored+${theScore}+in+Asteroid+Shooter+on+Base!`, "_blank");
       }
     }
-
     document.getElementById("share-base-btn").addEventListener("click", () => shareOnBase(score));
 
-        // Return to Home button
     document.getElementById("return-home-btn").addEventListener("click", () => {
       hideResultsOverlay();
       if (document.fullscreenElement) document.exitFullscreen();
       document.getElementById('start-game').disabled = false;
     });
 
-    // RESULTS OVERLAY BUTTONS (loop logic)
     document.getElementById("play-again-btn").addEventListener("click", () => {
       hideResultsOverlay();
-      document.getElementById("start-game").click(); // re-trigger start flow (will check lives)
+      document.getElementById("start-game").click();
     });
-    
-
-    // One-time minter grant – Rev 4.43 mainnet cleanup
-    async function grantMinterRoleOnce() {
-      try {
-        if (!window.ethereum) throw new Error("MetaMask not found – connect wallet first");
-        
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        await provider.send("eth_requestAccounts", []); // force connect
-        const signer = await provider.getSigner();
-        const ownerAddress = await signer.getAddress();
-        console.log("Connected as owner:", ownerAddress);
-
-        const token = new ethers.Contract(tokenAddress, tokenAbi, signer);
-        console.log("Granting MINTER_ROLE to Leaderboard on Base mainnet...");
-        
-        const tx = await token.grantMinterRole(leaderboardAddress);
-        console.log("Grant tx sent:", tx.hash);
-        await tx.wait();
-        
-        console.log("%c✅ SUCCESS! Leaderboard now has MINTER_ROLE on AST token!", "color:#32FF9A; font-size:18px");
-        alert("✅ Minter role granted successfully on Base mainnet!\n\nRefresh the page and play a game to test AST minting + leaderboard.");
-      } catch (err) {
-        console.error("Failed to grant role:", err);
-        alert("Grant failed: " + (err.message || err));
-      }
-    }
 
     async function addASTToMetaMask() {
       if (!window.ethereum) return alert("MetaMask not detected");
@@ -1166,73 +941,46 @@ startButton.addEventListener("click", async () => {
             options: {
               address: tokenAddress,
               symbol: 'AST',
-              decimals: 18,
-              image: 'https://i.imgur.com/8v5v5v5.png' // optional asteroid icon
+              decimals: 18
             }
           }
         });
         alert('✅ AST token added to MetaMask!');
       } catch (err) {
-        console.error(err);
         alert('Could not add token');
       }
     }
-    // Initial load (Guest mode)
-    document.addEventListener('DOMContentLoaded', () => {
-      updateTopBar();
-      updateScoreDisplay();
-      // Guest lives already set globally
-    });
 
-    // ==================== ONE-TIME TASKS (New System) ====================
-    // Rev 4.48: Now awards free life ON-CHAIN so UI and contract stay in sync (fixes lives=0 on submit)
     async function claimOneTimeTask(taskId, buttonId) {
       const completed = localStorage.getItem(`task_${taskId}_completed`);
       if (completed) {
         alert("You've already claimed this task!");
         return;
       }
-
       if (signer && contractsConfigured) {
         try {
           const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
           const tx = await contract.awardFreeLives(userAddress, 1);
-          console.log("Awarding free life on-chain...");
           await tx.wait();
-          console.log("%c✅ Free life awarded on-chain!", "color:#32FF9A");
-        } catch (e) {
-          console.error("On-chain awardFreeLives failed (non-critical)", e);
-        }
+        } catch (e) { console.error("On-chain award failed", e); }
       }
-
-      // Give 1 free life (UI + local backup)
       lives += 1;
       await updateTopBar();
-
-      // Mark as completed
       localStorage.setItem(`task_${taskId}_completed`, "true");
-
-      // Grey out the button
       const btn = document.getElementById(buttonId);
       if (btn) {
         btn.innerText = "Completed";
         btn.disabled = true;
         btn.style.opacity = "0.6";
       }
-
-      alert("1 free life claimed and saved on-chain! Thank you for supporting the project!");
+      alert("1 free life claimed and saved on-chain!");
     }
 
-    // Load completed tasks on page load
     function loadCompletedTasks() {
       [1, 2, 3].forEach(taskId => {
         const completed = localStorage.getItem(`task_${taskId}_completed`);
         if (completed) {
-          let buttonId = "";
-          if (taskId === 1) buttonId = "task-x";
-          if (taskId === 2) buttonId = "task-base";
-          if (taskId === 3) buttonId = "task-accumulator";
-
+          let buttonId = taskId === 1 ? "task-x" : taskId === 2 ? "task-base" : "task-accumulator";
           const btn = document.getElementById(buttonId);
           if (btn) {
             btn.innerText = "Completed";
@@ -1243,31 +991,10 @@ startButton.addEventListener("click", async () => {
       });
     }
 
-    // Daily claim – now also on-chain
-    document.getElementById("claim-daily").addEventListener("click", async () => {
-      if (signer && contractsConfigured) {
-        try {
-          const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-          const tx = await contract.awardFreeLives(userAddress, 1);
-          console.log("Awarding daily free life on-chain...");
-          await tx.wait();
-          console.log("%c✅ Daily free life awarded on-chain!", "color:#32FF9A");
-        } catch (e) {
-          console.error("On-chain daily award failed (non-critical)", e);
-        }
-      }
-
-      lives += 1;
-      await updateTopBar();
-      localStorage.setItem("daily_claim_time", Date.now().toString());
-      updateDailyClaim();
-      alert("1 free life claimed and saved on-chain!");
-    });
-    // Call this when the page loads
     document.addEventListener('DOMContentLoaded', () => {
       loadCompletedTasks();
+      updateDailyClaim();
     });
-
-
   </script>
 </body>
+</html>
