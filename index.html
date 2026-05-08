@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.62    -->
+  <!-- Asteroid Shooter - Rev 4.63    -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -660,67 +660,82 @@
       }
     });
 
-    let startButton = document.getElementById("start-game");
-    startButton.addEventListener("click", async () => {
-      if (!userAddress) return alert("Connect wallet first");
-      if (lives <= 0) return alert("No lives left! Buy more or complete tasks.");
+let startButton = document.getElementById("start-game");
+startButton.addEventListener("click", async () => {
+  if (!userAddress) return alert("Connect wallet first");
 
-      if (!confirm(`Spend 1 life to start Asteroid Shooter?\nLives remaining: ${lives}`)) {
-        startButton.disabled = false;
-        return;
+  // Check lives first
+  if (contractsConfigured && provider && userAddress) {
+    try {
+      const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+      const onChainLives = Number(await c.playerLives(userAddress));
+      if (onChainLives <= 0) {
+        return alert("You have 0 lives! Buy lives or claim daily/task life first.");
       }
+      lives = onChainLives;
+    } catch (e) {
+      console.error("Lives check failed", e);
+    }
+  }
 
-      startButton.disabled = true;
-      const playerName = sdk?.context?.user?.username || document.getElementById('whoami').innerText || "Guest";
+  if (lives <= 0) return alert("No lives left! Buy more or complete tasks.");
 
-      try {
-        if (contractsConfigured && signer) {
-          const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-          const tx = await contract.startGame(playerName);
-          const waitingMsg = document.createElement('div');
-          waitingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#111;color:#32FF9A;padding:16px 24px;border-radius:12px;border:2px solid #0052FF;z-index:9999;';
-          waitingMsg.innerText = 'Waiting for wallet confirmation...';
-          document.body.appendChild(waitingMsg);
-          await tx.wait();
-          waitingMsg.remove();
+  if (!confirm(`Spend 1 life to start?\nLives remaining: ${lives}`)) {
+    startButton.disabled = false;
+    return;
+  }
 
-          const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
-          lives = Number(await c.playerLives(userAddress));
-          console.log(`[Start Game v4.61] Lives after on-chain spend: ${lives}`);
-          await updateTopBar();
-        }
+  startButton.disabled = true;
+  const playerName = sdk?.context?.user?.username || document.getElementById('whoami').innerText || "Guest";
 
-        document.body.classList.add('game-mode');
-        const container = document.getElementById('game-container');
-        try { if (container.requestFullscreen) await container.requestFullscreen(); } catch(e){}
+  try {
+    if (contractsConfigured && signer) {
+      const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+      const tx = await contract.startGame(playerName);
+      await tx.wait();
 
-        const sceneInstance = game.scene.scenes[0];
-        setTimeout(() => {
-          const countdownText = sceneInstance.add.text(sceneInstance.scale.width / 2, sceneInstance.scale.height / 2, "3", { 
-            fontSize: `${Math.max(48 * baseScale, 60)}px`, fill: "#32FF9A", fontStyle: "bold",
-            stroke: "#F7931A", strokeThickness: 3 
-          }).setOrigin(0.5).setDepth(10);
+      const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+      lives = Number(await c.playerLives(userAddress));
+      console.log(`[Start Game v4.63] Lives after spend: ${lives}`);
+      await updateTopBar();
+    }
 
-          sceneInstance.time.delayedCall(1000, () => countdownText.setText("2"));
-          sceneInstance.time.delayedCall(2000, () => countdownText.setText("1"));
-          sceneInstance.time.delayedCall(3000, () => {
-            countdownText.setText("GO!");
-            sceneInstance.time.delayedCall(800, () => {   // ← increased from 500 to 800
-              countdownText.destroy();
-              gameplayActive = true;
-              sceneInstance.spawnTimer = sceneInstance.time.addEvent({ delay: 1000, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true });
-              sceneInstance.shootTimer = sceneInstance.time.addEvent({ delay: 250, callback: sceneInstance.shootLaser, callbackScope: sceneInstance, loop: true });
-            });
+    // Takeover
+    document.body.classList.add('game-mode');
+    const container = document.getElementById('game-container');
+    try { container.style.height = '92vh'; } catch(e){}
+
+    const sceneInstance = game.scene.scenes[0];
+    setTimeout(() => {
+      const countdownText = sceneInstance.add.text(sceneInstance.scale.width / 2, sceneInstance.scale.height / 2, "3", { 
+        fontSize: `${Math.max(48 * baseScale, 60)}px`, fill: "#32FF9A", fontStyle: "bold",
+        stroke: "#F7931A", strokeThickness: 3 
+      }).setOrigin(0.5).setDepth(10);
+
+      sceneInstance.time.delayedCall(1000, () => countdownText.setText("2"));
+      sceneInstance.time.delayedCall(2000, () => countdownText.setText("1"));
+      sceneInstance.time.delayedCall(3000, () => {
+        countdownText.setText("GO!");
+        sceneInstance.time.delayedCall(600, () => {
+          countdownText.destroy();
+          gameplayActive = true;
+          sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
+            delay: 1200, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
           });
-        }, 300);
+          sceneInstance.shootTimer = sceneInstance.time.addEvent({ 
+            delay: 280, callback: sceneInstance.shootLaser, callbackScope: sceneInstance, loop: true 
+          });
+        });
+      });
+    }, 200);
 
-      } catch (err) {
-        console.error('Start game error:', err);
-        alert('Failed to start: ' + (err.message || err));
-        startButton.disabled = false;
-        document.body.classList.remove('game-mode');
-      }
-    });
+  } catch (err) {
+    console.error('Start game error:', err);
+    alert('Failed to start: ' + (err.message || err));
+    startButton.disabled = false;
+    document.body.classList.remove('game-mode');
+  }
+});
 
     document.getElementById("buy-1").addEventListener("click", () => buyLives(1, 0.10));
     document.getElementById("buy-10").addEventListener("click", () => buyLives(10, 0.90));
