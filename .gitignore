@@ -1,1 +1,9 @@
-.vercel
+.env
+.env.*
+*.key
+*cdp_api_key*.json
+node_modules/
+artifacts/
+cache/
+.vercel/
+.DS_Store

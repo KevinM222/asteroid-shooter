@@ -1,0 +1,4 @@
+{"chain":"base-mainnet","chainId":8453,
+ "Leaderboard":{"inUseByFrontend":"0xEFd9a0865306244d4F5227F0eBA2679Dd6d47E6A","alsoDeployed":"0xbeDa8CDAE0f0829ea52B80cB6245a70F0010c35d","verified":false},
+ "AsteroidToken":{"address":"0xcEFB2484932595ffFC809a27B8A5b106A8E1715A","verified":false},
+ "USDC":"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"}

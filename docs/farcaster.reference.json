@@ -1,0 +1,29 @@
+{
+  "miniapp": {
+    "name": "Asteroid Shooter",
+    "shortDescription": "Arcade shooter with onchain leaderboard.",
+    "developer": {
+      "name": "Your Team",
+      "url": "https://YOUR_DOMAIN"
+    },
+    "icons": [
+      {
+        "url": "https://YOUR_DOMAIN/icon.png"
+      }
+    ],
+    "entrypoints": [
+      {
+        "type": "web",
+        "url": "https://YOUR_DOMAIN"
+      }
+    ],
+    "categories": [
+      "Games"
+    ]
+  },
+  "accountAssociation": {
+    "header": "eip191:1",
+    "payload": "REPLACE_WITH_SIGNED_PAYLOAD",
+    "signature": "0xREPLACE_SIGNATURE"
+  }
+}
