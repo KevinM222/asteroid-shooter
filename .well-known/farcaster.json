@@ -1,0 +1,26 @@
+{
+  "accountAssociation": {
+    "header": "REPLACE_ME_KEVIN_MUST_SIGN__see_README_section_Manifest",
+    "payload": "REPLACE_ME_KEVIN_MUST_SIGN__see_README_section_Manifest",
+    "signature": "REPLACE_ME_KEVIN_MUST_SIGN__see_README_section_Manifest"
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "Asteroid Shooter",
+    "homeUrl": "https://asteroid-shooter-alpha.vercel.app/",
+    "iconUrl": "https://asteroid-shooter-alpha.vercel.app/icon.png",
+    "splashImageUrl": "https://asteroid-shooter-alpha.vercel.app/splash.png",
+    "splashBackgroundColor": "#0A0F2E",
+    "subtitle": "Onchain arcade shooter",
+    "description": "Blast asteroids, climb the onchain leaderboard on Base and earn AST. Monthly prizes go to the top players.",
+    "tagline": "Blast rocks, earn AST",
+    "primaryCategory": "games",
+    "tags": ["games", "arcade", "shooter", "base", "onchain"],
+    "heroImageUrl": "https://asteroid-shooter-alpha.vercel.app/hero.png",
+    "ogTitle": "Asteroid Shooter",
+    "ogDescription": "Arcade asteroid shooter with an onchain leaderboard on Base.",
+    "ogImageUrl": "https://asteroid-shooter-alpha.vercel.app/hero.png",
+    "requiredChains": ["eip155:8453"],
+    "canonicalDomain": "asteroid-shooter-alpha.vercel.app"
+  }
+}

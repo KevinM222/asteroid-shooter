@@ -2,11 +2,14 @@
 <html lang="en">
 <head>
   <!-- ============================================ -->
-  <!-- Asteroid Shooter - Rev 4.63    -->
+  <!-- Asteroid Shooter - Rev 4.64    -->
   <!-- ============================================ -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Asteroid Shooter</title>
+  <meta name="description" content="Arcade asteroid shooter on Base with an onchain leaderboard." />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" href="/icon.png" />
   <style>
     body { 
       margin:0; 
@@ -92,7 +95,7 @@
     <div class="status-items">
       <span id="whoami" style="font-weight:600;">Guest</span>
       <span class="dot">·</span>
-      <span id="lives" style="font-variant-numeric:tabular-nums;">Lives: 3</span>
+      <span id="lives" style="font-variant-numeric:tabular-nums;">Lives: –</span>
       <span class="dot">·</span>
       <span id="shields" style="font-variant-numeric:tabular-nums;">Shields: 3/3</span>
       <span class="dot">·</span>
@@ -126,7 +129,7 @@
     <div style="max-width: 320px; margin: 40px auto; padding: 24px; background: #0A0F2E; border: 3px solid #0052FF; border-radius: 16px; box-shadow: 0 0 30px #0052FF, 0 0 50px #F7931A;">
       <h2 id="results-title" style="font-size:2.4rem; margin: 0 0 12px; color:#F7931A;">GAME OVER</h2>
       <div id="results-score" style="font-size:2.2rem; margin: 8px 0; color:#fff;">Score: 0</div>
-      <div id="results-ast" style="font-size:1.5rem; margin: 8px 0; color:#32FF9A; font-weight: 600;">+0 AST sent to your wallet!</div>
+      <div id="results-ast" style="font-size:1.5rem; margin: 8px 0; color:#32FF9A; font-weight: 600;"></div>
       <div id="results-tx" style="font-size:13px; margin: 4px 0 16px; color:#888; word-break: break-all;"></div>
       <div style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
         <button id="play-again-btn" style="font-size:18px; padding:14px 40px; width: 240px; border-color:#F7931A; background: linear-gradient(45deg, #0A0F2E, #111);">Play Again (1 Life)</button>
@@ -142,16 +145,16 @@
     <h3 style="color:#F7931A; text-shadow: 0 0 8px #F7931A;">Earn Free Lives (One-Time Tasks)</h3>
     <div style="margin: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 10px;">
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a href="https://x.com/kevinmm8222" target="_blank" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow @kevinmm8222 on X</a>
-        <button id="task-x" onclick="claimOneTimeTask(1, 'task-x')">Claim Life</button>
+        <a href="https://x.com/kevinmm8222" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow @kevinmm8222 on X</a>
+        <button id="task-x">Claim Life</button>
       </div>
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a href="https://base.app/profile/kevinmmm.base.eth" target="_blank" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow kevinmmm.base.eth on Base App</a>
-        <button id="task-base" onclick="claimOneTimeTask(2, 'task-base')">Claim Life</button>
+        <a href="https://base.app/profile/kevinmmm.base.eth" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow kevinmmm.base.eth on Base App</a>
+        <button id="task-base">Claim Life</button>
       </div>
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a href="https://accumulator-8.vercel.app/" target="_blank" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other mini app: Accumulator</a>
-        <button id="task-accumulator" onclick="claimOneTimeTask(3, 'task-accumulator')">Claim Life</button>
+        <a href="https://accumulator-8.vercel.app/" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other mini app: Accumulator</a>
+        <button id="task-accumulator">Claim Life</button>
       </div>
     </div>
     <div style="margin-top: 16px; border-top: 1px solid #0052FF; padding-top: 12px;">
@@ -167,12 +170,16 @@
 
   <div id="ast-facts">AST Facts: Loading...</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-  <script src="https://unpkg.com/ethers@6.11.1/dist/ethers.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@coinbase/minikit@latest/dist/minikit.umd.js"></script>
+  <!-- v4.64: third-party scripts pinned to exact versions with Subresource Integrity.
+       Hashes computed from the exact files served by jsDelivr (sha384). If you bump a version,
+       recompute: curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A
+       Removed: @coinbase/minikit@latest (unpinned; the package does not exist on npm, so the URL 404'd
+       and window.MiniKit was never defined - the MetaMask/injected-wallet path was always used). -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js" integrity="sha384-Fi7F0CYQBHYa+s2vvYJeiqvOQf3tuZ28vafRGXvMt7ijxNTVf3+eXPkNRIUi9JD2" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.11.1/dist/ethers.umd.min.js" integrity="sha384-POWgdAoUVoSKkKYCBiE8vhaiaawRSqMLmzJK50pZmRICRfkn2pYEHFRmn7Bogvej" crossorigin="anonymous"></script>
 
   <script>
-    // === v4.61 CLEAN VERSION ===
+    // === v4.64 (front-end security pass) ===
     const ethers = window.ethers;
     let sdk, provider, signer, userAddress;
     let isConnecting = false;
@@ -216,6 +223,69 @@
       'function balanceOf(address) view returns (uint256)'
     ];
 
+    // === v4.64: safe rendering helpers ===
+    // Never interpolate on-chain / user-provided strings into innerHTML. Use these instead.
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"'`]/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;'
+      }[c]));
+    }
+    const isTxHash = (h) => typeof h === 'string' && /^0x[0-9a-fA-F]{64}$/.test(h);
+
+    // Trim, strip control chars, cap at 32 UTF-8 bytes (Leaderboard requires 1..32 bytes).
+    function cleanPlayerName(name, fallback = 'Player') {
+      let n = String(name ?? '').replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, '').trim();
+      const enc = new TextEncoder();
+      while (n && enc.encode(n).length > 32) n = Array.from(n).slice(0, -1).join('');
+      return n || fallback;
+    }
+
+    function safeHttpsUrl(u) {
+      try { const url = new URL(String(u)); return url.protocol === 'https:' ? url.href : ''; }
+      catch (e) { return ''; }
+    }
+
+    function shortError(err) {
+      const msg = err?.shortMessage || err?.reason || err?.info?.error?.message || err?.message || String(err);
+      if (err?.code === 'ACTION_REJECTED' || /user (rejected|denied)/i.test(msg)) return 'Transaction rejected in wallet.';
+      return String(msg).slice(0, 160);
+    }
+
+    // Renders "<label><a href=basescan/tx/HASH>0x1234…abcd</a>" using DOM APIs only.
+    function renderTxLink(container, txHash, label = 'Tx: ') {
+      if (!container || !isTxHash(txHash)) return;
+      const wrap = document.createElement('div');
+      wrap.append(document.createTextNode(label));
+      const a = document.createElement('a');
+      a.href = `https://basescan.org/tx/${txHash}`;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.cssText = 'color:#32FF9A; text-decoration: underline;';
+      a.textContent = `${txHash.slice(0, 10)}...${txHash.slice(-6)}`;
+      wrap.appendChild(a);
+      container.appendChild(wrap);
+    }
+
+    function setText(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+      return el;
+    }
+
+    function showToast(text, isError = false) {
+      const toast = document.createElement('div');
+      toast.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:${isError ? '#FF5A5A' : '#32FF9A'}; color:#000; padding:14px 22px; border-radius:12px; font-weight:bold; z-index:999999; white-space:pre-line; text-align:center; max-width:90vw;`;
+      toast.textContent = text;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 7000);
+    }
+
+    async function waitForSuccess(tx) {
+      const receipt = await tx.wait();
+      if (!receipt || receipt.status !== 1) throw new Error('Transaction reverted on-chain');
+      return receipt;
+    }
+
     async function initSdk() {
       sdk = window.MiniKit?.default || window.MiniKit;
       if (sdk) {
@@ -230,7 +300,7 @@
     let gameplayActive = false;
     const MAX_SHIELDS = 3;
     const MISSES_ALLOWED = 3;
-    let lives = 3;
+    let lives = null; // v4.64: unknown until read from the Leaderboard contract
     let shields = MAX_SHIELDS;
     let misses = 0;
     let score = 0;
@@ -242,24 +312,46 @@
     let baseScale = 1.0;
     let personalHighScore = 0;
 
-    function showResultsOverlay(finalScore, astEarned, txHash = null) {
+    // v4.64: results overlay reflects the real submission state:
+    // 'submitting' -> 'confirmed' (on-chain receipt) | 'failed' | 'offline' | 'zero'
+    function showResultsOverlay(finalScore) {
       const overlay = document.getElementById('results-overlay');
-      document.getElementById('results-score').innerText = `Score: ${finalScore}`;
-      document.getElementById('results-ast').innerHTML = `+${astEarned} AST minted!<br><button id="add-ast-metamask" style="margin-top:8px;padding:8px 16px;font-size:14px;background:#F7931A;color:#000;border:none;border-radius:8px;cursor:pointer;">Add AST to MetaMask</button>`;
-      document.getElementById('results-title').innerText = finalScore > personalHighScore ? 'NEW HIGH SCORE!' : 'GAME OVER';
-
-      const txDiv = document.getElementById('results-tx');
-      if (txHash) {
-        txDiv.innerHTML = `Tx: <a href="https://basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
-      } else {
-        txDiv.innerHTML = '';
-      }
+      setText('results-score', `Score: ${finalScore}`);
+      setText('results-title', finalScore > personalHighScore ? 'NEW HIGH SCORE!' : 'GAME OVER');
+      document.getElementById('results-ast').replaceChildren();
+      document.getElementById('results-tx').replaceChildren();
       overlay.style.display = 'block';
+    }
 
-      setTimeout(() => {
-        const btn = document.getElementById('add-ast-metamask');
-        if (btn) btn.addEventListener('click', addASTToMetaMask);
-      }, 100);
+    function setResultsState(state, { txHash = null, astMinted = null, error = '' } = {}) {
+      const astDiv = document.getElementById('results-ast');
+      const txDiv = document.getElementById('results-tx');
+      astDiv.replaceChildren();
+      txDiv.replaceChildren();
+      const line = (text) => { const d = document.createElement('div'); d.textContent = text; return d; };
+      if (state === 'submitting') {
+        astDiv.append(line('⏳ Submitting score on-chain…'));
+        txDiv.append(line('Confirm the transaction in your wallet. AST rewards are minted only after it confirms.'));
+      } else if (state === 'confirmed') {
+        astDiv.append(line('✅ Score confirmed on-chain'));
+        if (astMinted !== null) astDiv.append(line(astMinted > 0 ? `+${astMinted} AST minted` : 'No AST earned this round'));
+        const btn = document.createElement('button');
+        btn.id = 'add-ast-metamask';
+        btn.textContent = 'Add AST to MetaMask';
+        btn.style.cssText = 'margin-top:8px;padding:8px 16px;font-size:14px;background:#F7931A;color:#000;border:none;border-radius:8px;cursor:pointer;';
+        btn.addEventListener('click', addASTToMetaMask);
+        astDiv.append(btn);
+        renderTxLink(txDiv, txHash);
+      } else if (state === 'failed') {
+        astDiv.append(line('❌ Score NOT saved'));
+        txDiv.append(line(`On-chain submission failed: ${error || 'unknown error'}. No AST was minted and the score was not stored anywhere.`));
+        renderTxLink(txDiv, txHash, 'Failed tx: ');
+      } else if (state === 'offline') {
+        astDiv.append(line('Score not saved'));
+        txDiv.append(line('Connect a wallet to submit scores to the on-chain leaderboard and earn AST.'));
+      } else if (state === 'zero') {
+        astDiv.append(line('Score of 0 is not submitted'));
+      }
     }
 
     function hideResultsOverlay() {
@@ -485,23 +577,29 @@
         if (speedRampTimer) speedRampTimer.remove();
 
         const finalScore = score;
-        const astEarned = Math.floor(finalScore / 50) + (finalScore > personalHighScore ? 50 : 0);
+        showResultsOverlay(finalScore);
 
-        showResultsOverlay(finalScore, astEarned);
-
-        if (signer && contractsConfigured) {
-          const shortName = document.getElementById('whoami').innerText || "Player";
+        if (finalScore < 1) {
+          setResultsState('zero');
+          updateLeaderboard();
+        } else if (signer && contractsConfigured) {
+          const shortName = cleanPlayerName(sdk?.context?.user?.username || document.getElementById('whoami').textContent);
+          setResultsState('submitting');
           submitScoreToChain(finalScore, shortName)
-            .then(async (txHash) => {
-              const txDiv = document.getElementById('results-tx');
-              if (txHash && txDiv) {
-                txDiv.innerHTML = `Tx: <a href="https://basescan.org/tx/${txHash}" target="_blank" style="color:#32FF9A; text-decoration: underline;">${txHash.slice(0,10)}...${txHash.slice(-6)}</a>`;
+            .then(async (result) => {
+              if (result.status === 'confirmed') {
+                setResultsState('confirmed', result);
+                await Promise.all([updateLeaderboard(), getTokenBalance(), updateAstFacts()]);
+                checkNewHighScoreAndShowBanner(finalScore);
+              } else {
+                setResultsState('failed', result);
+                showToast(`❌ Score not saved on-chain\n${result.error}`, true);
+                updateLeaderboard();
               }
-              await Promise.all([updateLeaderboard(), getTokenBalance(), updatePersonalHighScore()]);
-              checkNewHighScoreAndShowBanner(finalScore);
             })
-            .catch(console.error);
+            .catch((e) => { console.error(e); setResultsState('failed', { error: shortError(e) }); });
         } else {
+          setResultsState('offline');
           updateLeaderboard();
         }
 
@@ -573,7 +671,7 @@
 
     async function updateTopBar() {
       document.getElementById('shields').innerText = `Shields: ${shields}/${MAX_SHIELDS}`;
-      document.getElementById('lives').innerText = `Lives: ${lives}`;
+      document.getElementById('lives').innerText = `Lives: ${lives === null ? '–' : lives}`;
       if (provider && userAddress) await updateUsdcBalance();
     }
 
@@ -622,9 +720,11 @@
           displayName = u.username || displayName;
           avatarUrl = u.pfp_url || u.avatar || '';
         }
-        document.getElementById('whoami').innerText = displayName;
+        document.getElementById('whoami').textContent = cleanPlayerName(displayName, 'Player');
+        avatarUrl = safeHttpsUrl(avatarUrl); // only https: images, never javascript:/data: etc.
         if (avatarUrl) {
           const av = document.getElementById('avatar');
+          av.referrerPolicy = 'no-referrer';
           av.src = avatarUrl;
           av.style.display = 'block';
         }
@@ -638,8 +738,8 @@
           try {
             const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
             const onChainLives = await c.playerLives(userAddress);
-            lives = Number(onChainLives) || 3;
-          } catch (e) { lives = 3; }
+            lives = Number(onChainLives); // v4.64: show the real on-chain count (was "|| 3")
+          } catch (e) { console.error('Lives read failed', e); lives = null; }
 
           await Promise.allSettled([
             updateTopBar().catch(() => {}),
@@ -678,25 +778,27 @@ startButton.addEventListener("click", async () => {
     }
   }
 
-  if (lives <= 0) return alert("No lives left! Buy more or complete tasks.");
+  if (lives !== null && lives <= 0) return alert("No lives left! Buy more or complete tasks.");
 
-  if (!confirm(`Spend 1 life to start?\nLives remaining: ${lives}`)) {
+  if (!confirm(`Spend 1 life to start?\nLives remaining: ${lives === null ? 'unknown' : lives}`)) {
     startButton.disabled = false;
     return;
   }
 
   startButton.disabled = true;
-  const playerName = sdk?.context?.user?.username || document.getElementById('whoami').innerText || "Guest";
+  const playerName = cleanPlayerName(sdk?.context?.user?.username || document.getElementById('whoami').textContent, "Guest");
 
   try {
     if (contractsConfigured && signer) {
       const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+      startButton.innerText = 'Starting… confirm in wallet';
       const tx = await contract.startGame(playerName);
-      await tx.wait();
+      await waitForSuccess(tx);
+      startButton.innerText = 'Start Game';
 
       const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
       lives = Number(await c.playerLives(userAddress));
-      console.log(`[Start Game v4.63] Lives after spend: ${lives}`);
+      console.log(`[Start Game v4.64] Lives after spend: ${lives}`);
       await updateTopBar();
     }
 
@@ -731,7 +833,8 @@ startButton.addEventListener("click", async () => {
 
   } catch (err) {
     console.error('Start game error:', err);
-    alert('Failed to start: ' + (err.message || err));
+    alert('Failed to start (no life was spent unless the transaction confirmed): ' + shortError(err));
+    startButton.innerText = 'Start Game';
     startButton.disabled = false;
     document.body.classList.remove('game-mode');
   }
@@ -742,18 +845,26 @@ startButton.addEventListener("click", async () => {
     document.getElementById("buy-25").addEventListener("click", () => buyLives(25, 2.25));
     document.getElementById("buy-50").addEventListener("click", () => buyLives(50, 4.50));
 
+    let buyInProgress = false;
     async function buyLives(amount, usdPrice) {
       if (!signer) return alert("Connect first");
-      await checkUsdcApproval(amount);
+      if (buyInProgress) return;
+      buyInProgress = true;
+      const buyButtons = ['buy-1', 'buy-10', 'buy-25', 'buy-50'].map(id => document.getElementById(id));
+      buyButtons.forEach(b => { if (b) b.disabled = true; });
       try {
-        if (sdk) {
+        if (sdk && typeof sdk.pay === 'function') {
           const receipt = await sdk.pay({ amount: usdPrice.toString(), currency: 'USD', recipient: leaderboardAddress });
           if (receipt.status !== "success") throw new Error('Payment failed');
           await new Promise(r => setTimeout(r, 1500));
         } else {
+          // v4.64: approve only the exact cost of this purchase (never an unlimited allowance)
+          showToast('⏳ Checking USDC allowance…');
+          await ensureUsdcAllowance(amount);
+          showToast('⏳ Buying lives… confirm in your wallet');
           const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
           const tx = await contract.buyLives(amount);
-          await tx.wait();
+          await waitForSuccess(tx);
         }
         if (contractsConfigured) {
           const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
@@ -762,30 +873,37 @@ startButton.addEventListener("click", async () => {
         await updateTopBar();
         updatePrizePot();
         updateUsdcBalance();
-        alert(`Purchased ${amount} lives!`);
+        alert(`✅ Purchase of ${amount} lives confirmed on-chain. Lives: ${lives === null ? 'refresh to see' : lives}`);
       } catch (err) {
         console.error("Buy lives error:", err);
-        alert("Failed to buy: " + (err.message || err));
+        alert("❌ Purchase failed, no lives were added: " + shortError(err));
+      } finally {
+        buyInProgress = false;
+        buyButtons.forEach(b => { if (b) b.disabled = false; });
       }
     }
 
+    // v4.64: returns { status: 'confirmed'|'failed'|'skipped', txHash, astMinted, error }.
+    // The old version showed "Score saved locally" on failure, but nothing was ever saved locally.
     async function submitScoreToChain(finalScore, playerName = "Player") {
-      if (!contractsConfigured || !signer || finalScore < 1) return null;
+      if (!contractsConfigured || !signer || finalScore < 1) return { status: 'skipped', error: 'Not connected' };
+      let txHash = null;
       try {
+        const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
+        const before = await token.balanceOf(userAddress).catch(() => null);
         const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-        const tx = await contract.submitScore(finalScore, playerName);
-        await tx.wait();
-        await Promise.all([updateLeaderboard(), getTokenBalance(), updateAstFacts()]);
-        return tx.hash;
+        const tx = await contract.submitScore(finalScore, cleanPlayerName(playerName));
+        txHash = tx.hash;
+        await waitForSuccess(tx);
+        let astMinted = null;
+        if (before !== null) {
+          const after = await token.balanceOf(userAddress).catch(() => null);
+          if (after !== null) astMinted = Number(ethers.formatEther(after - before));
+        }
+        return { status: 'confirmed', txHash, astMinted };
       } catch (err) {
         console.error("Score submission failed:", err);
-        const toast = document.createElement("div");
-        toast.style.cssText = `position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:#F7931A; color:#000; padding:14px 22px; border-radius:12px; font-weight:bold; z-index:999999;`;
-        toast.innerHTML = `✅ Score saved locally<br><span style="font-size:12px;opacity:0.8;">(on-chain issue)</span>`;
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 6000);
-        await updateLeaderboard();
-        return null;
+        return { status: 'failed', txHash, error: shortError(err) };
       }
     }
 
@@ -813,10 +931,18 @@ startButton.addEventListener("click", async () => {
         const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
         let top = await contract.getTopScores(5);
         const ul = document.getElementById("leaderboard-list");
-        ul.innerHTML = top.map(s => `<li>${(s.playerName || "Anonymous")} (${s.player.slice(0,6)}…): ${s.score}</li>`).join("");
+        // v4.64: names come from the chain (anyone can submit any string) - render as text only.
+        ul.replaceChildren(...top.map(s => {
+          const li = document.createElement('li');
+          const addr = String(s.player || '');
+          li.textContent = `${cleanPlayerName(s.playerName, 'Anonymous')} (${addr.slice(0,6)}…): ${String(s.score)}`;
+          return li;
+        }));
       } catch (err) {
         console.error("Leaderboard error:", err);
-        document.getElementById("leaderboard-list").innerHTML = "<li>Leaderboard Error</li>";
+        const li = document.createElement('li');
+        li.textContent = 'Leaderboard Error';
+        document.getElementById("leaderboard-list").replaceChildren(li);
       }
     }
 
@@ -838,16 +964,26 @@ startButton.addEventListener("click", async () => {
       } catch (err) { console.error("USDC balance error:", err); }
     }
 
-    async function checkUsdcApproval(amount) {
-      if (!signer || !provider) return;
+    // v4.64: exact-amount USDC approval. Reads the live lifePrice from the Leaderboard
+    // (contract charges amount * lifePrice), checks balance + existing allowance, and if the
+    // allowance is short approves EXACTLY this purchase's cost. ERC-20 approve() sets (does not
+    // add to) the allowance, so approving the full cost is the exact amount buyLives will pull.
+    async function ensureUsdcAllowance(amount) {
+      if (!signer || !provider || !userAddress) throw new Error('Connect first');
       const usdc = new ethers.Contract(usdcAddress, usdcAbi, provider);
-      const cost = BigInt(amount) * BigInt(100000);
-      const allowance = await usdc.allowance(userAddress, leaderboardAddress);
-      if (allowance < cost) {
-        const usdcWithSigner = new ethers.Contract(usdcAddress, ['function approve(address spender, uint256 amount)'], signer);
-        const tx = await usdcWithSigner.approve(leaderboardAddress, ethers.MaxUint256);
-        await tx.wait();
-      }
+      const lb = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+      let price;
+      try { price = BigInt(await lb.lifePrice()); } catch (e) { price = 100000n; } // 0.10 USDC fallback
+      const cost = BigInt(amount) * price;
+      const balance = BigInt(await usdc.balanceOf(userAddress));
+      if (balance < cost) throw new Error(`Not enough USDC: need ${ethers.formatUnits(cost, 6)}, have ${ethers.formatUnits(balance, 6)}`);
+      const allowance = BigInt(await usdc.allowance(userAddress, leaderboardAddress));
+      if (allowance >= cost) return cost;
+      showToast(`⏳ Approve exactly ${ethers.formatUnits(cost, 6)} USDC in your wallet`);
+      const usdcWithSigner = new ethers.Contract(usdcAddress, ['function approve(address spender, uint256 amount) returns (bool)'], signer);
+      const tx = await usdcWithSigner.approve(leaderboardAddress, cost);
+      await waitForSuccess(tx);
+      return cost;
     }
 
     async function updateAstFacts() {
@@ -882,30 +1018,47 @@ startButton.addEventListener("click", async () => {
     }
     setInterval(updateDailyClaim, 60000);
 
-    document.getElementById("claim-daily").addEventListener("click", async () => {
-      if (signer && contractsConfigured) {
-        try {
-          const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-          const tx = await contract.awardFreeLives(userAddress, 1);
-          await tx.wait();
-        } catch (e) { console.error("On-chain daily award failed", e); }
-      }
-      lives += 1;
+    // v4.64: only report success when the award tx is confirmed on-chain. Previously the
+    // failure was swallowed, a fake local +1 life was shown, and it said "saved on-chain".
+    // NOTE: Leaderboard.awardFreeLives is onlyOwner, so this succeeds only for the owner wallet.
+    async function awardFreeLifeOnChain() {
+      if (!signer || !contractsConfigured || !userAddress) throw new Error('Connect your wallet first');
+      const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+      const tx = await contract.awardFreeLives(userAddress, 1);
+      await waitForSuccess(tx);
+      const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+      lives = Number(await c.playerLives(userAddress));
       await updateTopBar();
-      localStorage.setItem("daily_claim_time", Date.now().toString());
+    }
+
+    document.getElementById("claim-daily").addEventListener("click", async () => {
+      const btn = document.getElementById("claim-daily");
+      btn.disabled = true;
+      setText('daily-timer', 'Submitting…');
+      try {
+        await awardFreeLifeOnChain();
+        localStorage.setItem("daily_claim_time", Date.now().toString());
+        alert("✅ 1 free life confirmed on-chain!");
+      } catch (e) {
+        console.error("On-chain daily award failed", e);
+        alert("❌ Free life NOT added (nothing was saved): " + shortError(e));
+      }
       updateDailyClaim();
-      alert("1 free life claimed and saved on-chain!");
     });
 
     async function shareOnBase(theScore) {
+      const n = Number(theScore) || 0;
+      const fallback = () => window.open(`https://base.app/compose?text=${encodeURIComponent(`Just scored ${n} in Asteroid Shooter on Base!`)}`, "_blank", "noopener");
+      const compose = sdk?.actions?.composeCast;
+      if (typeof compose !== 'function') return fallback();
       try {
-        await sdk?.actions?.composeCast?.({
-          text: `Just scored ${theScore} in Asteroid Shooter on Base! 🚀 Can you beat me?`,
-          embeds: [{ url: window.location.href }]
+        const res = await compose({
+          text: `Just scored ${n} in Asteroid Shooter on Base! 🚀 Can you beat me?`,
+          embeds: [window.location.origin + '/']
         });
-        alert("Score shared on Base App!");
+        if (res?.cast) alert("Score shared!");
       } catch (err) {
-        window.open(`https://base.app/compose?text=Just+scored+${theScore}+in+Asteroid+Shooter+on+Base!`, "_blank");
+        fallback();
       }
     }
     document.getElementById("share-base-btn").addEventListener("click", () => shareOnBase(score));
@@ -924,7 +1077,7 @@ startButton.addEventListener("click", async () => {
     async function addASTToMetaMask() {
       if (!window.ethereum) return alert("MetaMask not detected");
       try {
-        await window.ethereum.request({
+        const added = await window.ethereum.request({
           method: 'wallet_watchAsset',
           params: {
             type: 'ERC20',
@@ -935,7 +1088,7 @@ startButton.addEventListener("click", async () => {
             }
           }
         });
-        alert('✅ AST token added to MetaMask!');
+        alert(added ? '✅ AST token added to your wallet' : 'AST token was not added');
       } catch (err) {
         alert('Could not add token');
       }
@@ -944,27 +1097,27 @@ startButton.addEventListener("click", async () => {
     async function claimOneTimeTask(taskId, buttonId) {
       const completed = localStorage.getItem(`task_${taskId}_completed`);
       if (completed) {
-        alert("You've already claimed this task!");
+        alert("You've already claimed this task on this device.");
         return;
       }
-      if (signer && contractsConfigured) {
-        try {
-          const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-          const tx = await contract.awardFreeLives(userAddress, 1);
-          await tx.wait();
-        } catch (e) { console.error("On-chain award failed", e); }
-      }
-      lives += 1;
-      await updateTopBar();
-      localStorage.setItem(`task_${taskId}_completed`, "true");
       const btn = document.getElementById(buttonId);
-      if (btn) {
-        btn.innerText = "Completed";
-        btn.disabled = true;
-        btn.style.opacity = "0.6";
+      if (btn) { btn.disabled = true; btn.innerText = 'Submitting…'; }
+      try {
+        await awardFreeLifeOnChain();
+        localStorage.setItem(`task_${taskId}_completed`, "true");
+        if (btn) { btn.innerText = "Completed"; btn.style.opacity = "0.6"; }
+        alert("✅ 1 free life confirmed on-chain!");
+      } catch (e) {
+        console.error("On-chain award failed", e);
+        if (btn) { btn.innerText = 'Claim Life'; btn.disabled = false; }
+        alert("❌ Free life NOT added (nothing was saved): " + shortError(e));
       }
-      alert("1 free life claimed and saved on-chain!");
     }
+    // v4.64: wired here instead of inline onclick="" attributes (CSP-friendly)
+    [[1, 'task-x'], [2, 'task-base'], [3, 'task-accumulator']].forEach(([id, btnId]) => {
+      const b = document.getElementById(btnId);
+      if (b) b.addEventListener('click', () => claimOneTimeTask(id, btnId));
+    });
 
     function loadCompletedTasks() {
       [1, 2, 3].forEach(taskId => {
