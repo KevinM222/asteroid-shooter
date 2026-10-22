@@ -2,3 +2,14 @@ contracts/
 docs/
 scripts/
 README.md
+lib/
+test/
+server/test/
+out/
+cache/
+foundry.toml
+foundry.lock
+ISSUES.md
+.gitmodules
+broadcast/
+.env*

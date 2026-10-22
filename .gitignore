@@ -7,3 +7,5 @@ artifacts/
 cache/
 .vercel/
 .DS_Store
+out/
+broadcast/

@@ -4,6 +4,10 @@ Single-file Phaser 3 + ethers v6 game, deployed on Vercel (asteroid-shooter-alph
 - `assets/` – sprites
 - `contracts/` – Leaderboard + AsteroidToken source (solc 0.8.20, OZ 5.0.2). NOTE: closest local source, NOT byte-identical to mainnet deployments; deployments are unverified.
 - `deployments.json` – mainnet addresses.
+- `contracts/LeaderboardV2.sol`, `test/`, `scripts/foundry/` – economy v2 (Foundry; `forge install && forge test`). See `docs/ECONOMY-V2.md`.
+- `api/` + `server/` – score-signing Vercel functions for v2 (inactive until env vars are set; see docs/DEPLOY_V2.md).
+- `vendor/miniapp-sdk.js` – self-hosted Farcaster mini-app SDK (`npm run build:sdk`).
+- `ISSUES.md` – running list of issues to fix before the demo.
 No secrets belong in this repo; see .gitignore.
 
 ## Security config (Rev 4.64)
