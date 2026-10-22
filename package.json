@@ -1,0 +1,20 @@
+{
+  "name": "asteroid-score-signer",
+  "private": true,
+  "type": "module",
+  "description": "DRAFT: Vercel function that signs Asteroid Shooter scores for LeaderboardV2. Not deployed.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ethers": "6.11.1"
+  },
+  "scripts": {
+    "test": "node --test server/test/",
+    "build:sdk": "esbuild scripts/fc-sdk-entry.js --bundle --minify --format=iife --target=es2020 --outfile=vendor/miniapp-sdk.js"
+  },
+  "devDependencies": {
+    "@farcaster/miniapp-sdk": "0.3.0",
+    "esbuild": "0.28.2"
+  }
+}

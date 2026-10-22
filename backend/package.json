@@ -1,9 +1,0 @@
-{
-  "name": "asteroid-score-signer",
-  "private": true,
-  "type": "module",
-  "description": "DRAFT: Vercel function that signs Asteroid Shooter scores for LeaderboardV2. Not deployed.",
-  "engines": { "node": ">=20" },
-  "dependencies": { "ethers": "6.11.1" },
-  "scripts": { "test": "node --test test/" }
-}

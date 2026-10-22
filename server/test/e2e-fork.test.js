@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { Contract, JsonRpcProvider, Wallet, keccak256, toUtf8Bytes } from "ethers";
-import { signScore, RejectError } from "../lib/signer.js";
+import { signScore, RejectError } from "../signer.js";
 
 const RPC = process.env.RPC;
 const OWNER = "0xACfCA8Bc6567E7DB35AD8C814756695dad1cfB30";

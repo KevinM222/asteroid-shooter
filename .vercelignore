@@ -4,7 +4,7 @@ scripts/
 README.md
 lib/
 test/
-backend/
+server/test/
 out/
 cache/
 foundry.toml

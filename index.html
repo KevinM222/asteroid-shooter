@@ -177,6 +177,8 @@
        and window.MiniKit was never defined - the MetaMask/injected-wallet path was always used). -->
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js" integrity="sha384-Fi7F0CYQBHYa+s2vvYJeiqvOQf3tuZ28vafRGXvMt7ijxNTVf3+eXPkNRIUi9JD2" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.11.1/dist/ethers.umd.min.js" integrity="sha384-POWgdAoUVoSKkKYCBiE8vhaiaawRSqMLmzJK50pZmRICRfkn2pYEHFRmn7Bogvej" crossorigin="anonymous"></script>
+  <!-- Farcaster / Base mini-app SDK, self-hosted (npm @farcaster/miniapp-sdk@0.3.0, `npm run build:sdk`) -->
+  <script src="/vendor/miniapp-sdk.js" integrity="sha384-kneml2QskOvZYjSKuDfVPbF5Pf+tRd+bVBkKApQkUiNWQsnSnlxeghJY49fjc2pQ"></script>
 
   <script>
     // === v4.64 (front-end security pass) ===
@@ -184,7 +186,21 @@
     let sdk, provider, signer, userAddress;
     let isConnecting = false;
 
-    const leaderboardAddress = "0xEFd9a0865306244d4F5227F0eBA2679Dd6d47E6A";
+    // === v5.0 economy config ===
+    // Set LEADERBOARD_V2 to the deployed LeaderboardV2 address to switch the game to v2 (signed scores via
+    // the /api backend, daily free lives, pack prices). While it is empty the page runs in "v1 legacy" mode
+    // against 0xEFd9: reads still work, but score submits / purchases / free lives are disabled because the
+    // v1 board cannot record scores and its USDC can't be withdrawn (see ISSUES.md).
+    const ECONOMY = {
+      LEADERBOARD_V2: "",
+      SCORE_API: "/api/score",
+      SESSION_API: "/api/session",
+      LEGACY_LEADERBOARD: "0xEFd9a0865306244d4F5227F0eBA2679Dd6d47E6A",
+    };
+    const useV2 = /^0x[a-fA-F0-9]{40}$/.test(ECONOMY.LEADERBOARD_V2);
+    const leaderboardAddress = useV2 ? ECONOMY.LEADERBOARD_V2 : ECONOMY.LEGACY_LEADERBOARD;
+    const LEGACY_MSG = 'The leaderboard is being upgraded. Scores, purchases and free lives are paused until the new contract is live.';
+    let currentGame = null; // v2: { gameId, session }
     const tokenAddress = "0xcEFB2484932595ffFC809a27B8A5b106A8E1715A";
     const usdcAddress = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 
@@ -207,6 +223,23 @@
       'event LivesBought(address indexed player, uint256 amount)',
       'event ATHBeaten(address indexed player, uint256 score)'
     ];
+
+    const leaderboardV2Abi = [
+      'function startGame() returns (uint256)',
+      'function submitScore(uint256 gameId, uint256 score, string name, uint256 deadline, bytes signature)',
+      'function buyLives(uint256 lives)',
+      'function claimDailyLives()',
+      'function packPrice(uint256 lives) view returns (uint256)',
+      'function nextDailyClaimAt(address player) view returns (uint256)',
+      'function prizePot() view returns (uint256)',
+      'function getTopScores(uint256 count) view returns (tuple(address player, uint256 score, string playerName)[])',
+      'function playerLives(address) view returns (uint256)',
+      'function playerHighScore(address) view returns (uint256)',
+      'function allTimeHigh() view returns (uint256)',
+      'event GameStarted(address indexed player, uint256 indexed gameId, uint256 livesLeft)',
+      'event ScoreSubmitted(address indexed player, uint256 indexed gameId, uint256 score, uint256 astReward, string name)'
+    ];
+    const lbAbi = useV2 ? leaderboardV2Abi : leaderboardAbi;
 
     const tokenAbi = [
       'function balanceOf(address) view returns (uint256)',
@@ -286,16 +319,26 @@
       return receipt;
     }
 
+    // v5.0: Farcaster / Base mini-app SDK. ready() hides the client's splash screen; without it the
+    // app can hang on the splash inside Farcaster/Base clients. Outside a mini-app host sdk stays null.
+    let fcProvider = null;
     async function initSdk() {
-      sdk = window.MiniKit?.default || window.MiniKit;
-      if (sdk) {
-        await sdk.ready();
-        console.log('MiniKit ready');
-      } else {
-        console.log('MiniKit not available – using MetaMask fallback');
+      const fc = window.farcasterMiniAppSdk;
+      if (!fc) { console.log('Mini-app SDK not loaded – browser wallet mode'); return; }
+      try {
+        const inMiniApp = await fc.isInMiniApp().catch(() => false);
+        if (!inMiniApp) { console.log('Not inside a mini-app host – browser wallet mode'); return; }
+        const context = await fc.context.catch(() => null);
+        sdk = { actions: fc.actions, context: { user: context?.user ? { ...context.user, pfp_url: context.user.pfpUrl } : null } };
+        fcProvider = await fc.wallet.getEthereumProvider().catch(() => null);
+      } catch (e) {
+        console.warn('Mini-app SDK init failed', e);
+      } finally {
+        // Always dismiss the splash, even if context/wallet failed.
+        try { await fc.actions.ready(); } catch (e) { console.warn('sdk.actions.ready failed', e); }
       }
     }
-    initSdk();
+    const sdkReady = initSdk();
 
     let gameplayActive = false;
     const MAX_SHIELDS = 3;
@@ -678,7 +721,7 @@
     async function updatePersonalHighScore() {
       if (!contractsConfigured || !userAddress || !provider) return;
       try {
-        const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+        const contract = new ethers.Contract(leaderboardAddress, lbAbi, provider);
         const high = await contract.playerHighScore(userAddress);
         personalHighScore = Number(high);
         document.getElementById('personal-high').innerText = `High: ${personalHighScore}`;
@@ -693,22 +736,17 @@
       button.innerText = 'Connecting...';
       button.disabled = true;
       try {
-        if (sdk) {
-          const accounts = await sdk.connect();
-          if (accounts.length > 0) {
-            userAddress = accounts[0].address;
-            provider = await sdk.getProvider();
-            signer = await provider.getSigner();
+        await sdkReady;
+        const eip1193 = fcProvider || window.ethereum;
+        if (eip1193) {
+          await eip1193.request({ method: "eth_requestAccounts" });
+          const net = await eip1193.request({ method: "eth_chainId" });
+          if (Number(net) !== 8453) {
+            await eip1193.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
           }
-        } else if (window.ethereum) {
-          provider = new ethers.BrowserProvider(window.ethereum);
-          await provider.send("eth_requestAccounts", []);
+          provider = new ethers.BrowserProvider(eip1193);
           signer = await provider.getSigner();
           userAddress = await signer.getAddress();
-          const network = await provider.getNetwork();
-          if (Number(network.chainId) !== 8453) {
-            await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
-          }
         } else {
           throw new Error('No wallet detected');
         }
@@ -736,7 +774,7 @@
         await updateUsdcBalance().catch(() => {});
         if (contractsConfigured && userAddress) {
           try {
-            const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+            const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
             const onChainLives = await c.playerLives(userAddress);
             lives = Number(onChainLives); // v4.64: show the real on-chain count (was "|| 3")
           } catch (e) { console.error('Lives read failed', e); lives = null; }
@@ -750,6 +788,7 @@
             updateAstFacts().catch(() => {})
           ]);
         }
+        await refreshDailyFromChain();
         updateDailyClaim();
       } catch (err) {
         console.error('Connect error:', err.message);
@@ -767,7 +806,7 @@ startButton.addEventListener("click", async () => {
   // Check lives first
   if (contractsConfigured && provider && userAddress) {
     try {
-      const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+      const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
       const onChainLives = Number(await c.playerLives(userAddress));
       if (onChainLives <= 0) {
         return alert("You have 0 lives! Buy lives or claim daily/task life first.");
@@ -790,13 +829,15 @@ startButton.addEventListener("click", async () => {
 
   try {
     if (contractsConfigured && signer) {
-      const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
+      const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
       startButton.innerText = 'Starting… confirm in wallet';
-      const tx = await contract.startGame(playerName);
-      await waitForSuccess(tx);
+      currentGame = null;
+      const tx = useV2 ? await contract.startGame() : await contract.startGame(playerName);
+      const startReceipt = await waitForSuccess(tx);
+      if (useV2) currentGame = await openGameSession(contract, startReceipt);
       startButton.innerText = 'Start Game';
 
-      const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+      const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
       lives = Number(await c.playerLives(userAddress));
       console.log(`[Start Game v4.64] Lives after spend: ${lives}`);
       await updateTopBar();
@@ -840,6 +881,31 @@ startButton.addEventListener("click", async () => {
   }
 });
 
+    // v2: read the game id from the GameStarted event and get a backend session token for it.
+    async function openGameSession(contract, receipt) {
+      let gameId = null;
+      for (const log of receipt.logs || []) {
+        try {
+          const ev = contract.interface.parseLog(log);
+          if (ev?.name === 'GameStarted' && ev.args.player.toLowerCase() === userAddress.toLowerCase()) gameId = ev.args.gameId;
+        } catch (e) { /* not ours */ }
+      }
+      if (gameId === null) return null;
+      try {
+        const r = await fetch(ECONOMY.SESSION_API, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ player: userAddress, gameId: gameId.toString() })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        return { gameId, session: j.session };
+      } catch (e) {
+        console.warn('Session open failed; this score cannot be signed', e);
+        showToast('⚠️ Score server unavailable: you can play, but this score may not be saved.', true);
+        return { gameId, session: null };
+      }
+    }
+
     document.getElementById("buy-1").addEventListener("click", () => buyLives(1, 0.10));
     document.getElementById("buy-10").addEventListener("click", () => buyLives(10, 0.90));
     document.getElementById("buy-25").addEventListener("click", () => buyLives(25, 2.25));
@@ -853,21 +919,17 @@ startButton.addEventListener("click", async () => {
       const buyButtons = ['buy-1', 'buy-10', 'buy-25', 'buy-50'].map(id => document.getElementById(id));
       buyButtons.forEach(b => { if (b) b.disabled = true; });
       try {
-        if (sdk && typeof sdk.pay === 'function') {
-          const receipt = await sdk.pay({ amount: usdPrice.toString(), currency: 'USD', recipient: leaderboardAddress });
-          if (receipt.status !== "success") throw new Error('Payment failed');
-          await new Promise(r => setTimeout(r, 1500));
-        } else {
-          // v4.64: approve only the exact cost of this purchase (never an unlimited allowance)
-          showToast('⏳ Checking USDC allowance…');
-          await ensureUsdcAllowance(amount);
-          showToast('⏳ Buying lives… confirm in your wallet');
-          const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-          const tx = await contract.buyLives(amount);
-          await waitForSuccess(tx);
-        }
+        // v5.0: removed the sdk.pay() branch (it sent USD to the board without crediting lives).
+        // v1 legacy mode: no purchases, USDC sent to 0xEFd9 can never be withdrawn.
+        if (!useV2) throw new Error(LEGACY_MSG);
+        showToast('⏳ Checking USDC allowance…');
+        await ensureUsdcAllowance(amount);
+        showToast('⏳ Buying lives… confirm in your wallet');
+        const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
+        const tx = await contract.buyLives(amount);
+        await waitForSuccess(tx);
         if (contractsConfigured) {
-          const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+          const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
           lives = Number(await c.playerLives(userAddress));
         }
         await updateTopBar();
@@ -887,12 +949,22 @@ startButton.addEventListener("click", async () => {
     // The old version showed "Score saved locally" on failure, but nothing was ever saved locally.
     async function submitScoreToChain(finalScore, playerName = "Player") {
       if (!contractsConfigured || !signer || finalScore < 1) return { status: 'skipped', error: 'Not connected' };
+      if (!useV2) return { status: 'failed', error: LEGACY_MSG };
+      if (!currentGame?.session) return { status: 'failed', error: 'No score session for this game (score server was unavailable at start)' };
       let txHash = null;
       try {
+        const r = await fetch(ECONOMY.SCORE_API, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ player: userAddress, gameId: currentGame.gameId.toString(), score: finalScore,
+                                 name: cleanPlayerName(playerName), session: currentGame.session })
+        });
+        const signed = await r.json().catch(() => ({}));
+        if (!r.ok) return { status: 'failed', error: `Score server: ${signed.error || 'HTTP ' + r.status}` };
         const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
         const before = await token.balanceOf(userAddress).catch(() => null);
-        const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-        const tx = await contract.submitScore(finalScore, cleanPlayerName(playerName));
+        const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
+        const tx = await contract.submitScore(currentGame.gameId, signed.score, signed.name, signed.deadline, signed.signature);
+        currentGame = null;
         txHash = tx.hash;
         await waitForSuccess(tx);
         let astMinted = null;
@@ -928,7 +1000,7 @@ startButton.addEventListener("click", async () => {
     async function updateLeaderboard() {
       if (!contractsConfigured || !provider) return;
       try {
-        const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+        const contract = new ethers.Contract(leaderboardAddress, lbAbi, provider);
         let top = await contract.getTopScores(5);
         const ul = document.getElementById("leaderboard-list");
         // v4.64: names come from the chain (anyone can submit any string) - render as text only.
@@ -949,8 +1021,9 @@ startButton.addEventListener("click", async () => {
     async function updatePrizePot() {
       if (!provider) return;
       try {
-        const usdc = new ethers.Contract(usdcAddress, usdcAbi, provider);
-        const bal = await usdc.balanceOf(leaderboardAddress);
+        const bal = useV2
+          ? await new ethers.Contract(leaderboardAddress, lbAbi, provider).prizePot()
+          : await new ethers.Contract(usdcAddress, usdcAbi, provider).balanceOf(leaderboardAddress);
         document.getElementById("pot-balance").innerText = ethers.formatUnits(bal, 6);
       } catch (err) { console.error("Pot error:", err); }
     }
@@ -971,10 +1044,10 @@ startButton.addEventListener("click", async () => {
     async function ensureUsdcAllowance(amount) {
       if (!signer || !provider || !userAddress) throw new Error('Connect first');
       const usdc = new ethers.Contract(usdcAddress, usdcAbi, provider);
-      const lb = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
-      let price;
-      try { price = BigInt(await lb.lifePrice()); } catch (e) { price = 100000n; } // 0.10 USDC fallback
-      const cost = BigInt(amount) * price;
+      const lb = new ethers.Contract(leaderboardAddress, lbAbi, provider);
+      // v2 charges the pack price (with discounts); a pack that isn't for sale reverts, so fail early.
+      const cost = BigInt(await lb.packPrice(amount));
+      if (cost === 0n) throw new Error(`The ${amount}-life pack is not for sale`);
       const balance = BigInt(await usdc.balanceOf(userAddress));
       if (balance < cost) throw new Error(`Not enough USDC: need ${ethers.formatUnits(cost, 6)}, have ${ethers.formatUnits(balance, 6)}`);
       const allowance = BigInt(await usdc.allowance(userAddress, leaderboardAddress));
@@ -1000,12 +1073,21 @@ startButton.addEventListener("click", async () => {
       }
     }
 
+    let nextDailyAtMs = 0; // v2: from nextDailyClaimAt() on-chain
+    async function refreshDailyFromChain() {
+      if (!useV2 || !provider || !userAddress) return;
+      try {
+        const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
+        nextDailyAtMs = Number(await c.nextDailyClaimAt(userAddress)) * 1000;
+      } catch (e) { console.error('nextDailyClaimAt failed', e); }
+      updateDailyClaim();
+    }
     function updateDailyClaim() {
       const now = Date.now();
-      const lastClaim = parseInt(localStorage.getItem("daily_claim_time") || "0");
-      const timeLeft = 86400000 - (now - lastClaim);
       const btn = document.getElementById("claim-daily");
       const timer = document.getElementById("daily-timer");
+      if (!useV2) { btn.disabled = true; timer.innerText = 'Paused during upgrade'; return; }
+      const timeLeft = nextDailyAtMs - now;
       if (timeLeft > 0) {
         btn.disabled = true;
         const h = Math.floor(timeLeft / 3600000);
@@ -1021,12 +1103,14 @@ startButton.addEventListener("click", async () => {
     // v4.64: only report success when the award tx is confirmed on-chain. Previously the
     // failure was swallowed, a fake local +1 life was shown, and it said "saved on-chain".
     // NOTE: Leaderboard.awardFreeLives is onlyOwner, so this succeeds only for the owner wallet.
+    // v5.0: v2 lets any wallet claim its daily life itself (claimDailyLives); v1 was owner-only.
     async function awardFreeLifeOnChain() {
       if (!signer || !contractsConfigured || !userAddress) throw new Error('Connect your wallet first');
-      const contract = new ethers.Contract(leaderboardAddress, leaderboardAbi, signer);
-      const tx = await contract.awardFreeLives(userAddress, 1);
+      if (!useV2) throw new Error(LEGACY_MSG);
+      const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
+      const tx = await contract.claimDailyLives();
       await waitForSuccess(tx);
-      const c = new ethers.Contract(leaderboardAddress, leaderboardAbi, provider);
+      const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
       lives = Number(await c.playerLives(userAddress));
       await updateTopBar();
     }
@@ -1037,7 +1121,7 @@ startButton.addEventListener("click", async () => {
       setText('daily-timer', 'Submitting…');
       try {
         await awardFreeLifeOnChain();
-        localStorage.setItem("daily_claim_time", Date.now().toString());
+        await refreshDailyFromChain();
         alert("✅ 1 free life confirmed on-chain!");
       } catch (e) {
         console.error("On-chain daily award failed", e);
@@ -1100,6 +1184,9 @@ startButton.addEventListener("click", async () => {
         alert("You've already claimed this task on this device.");
         return;
       }
+      // v5.0: task rewards need backend-verified grants (claimLifeGrant), not built yet (ISSUES.md S5).
+      return alert(useV2 ? 'Task rewards are coming soon. Claim your daily free life meanwhile!' : LEGACY_MSG);
+      /* eslint-disable no-unreachable */
       const btn = document.getElementById(buttonId);
       if (btn) { btn.disabled = true; btn.innerText = 'Submitting…'; }
       try {

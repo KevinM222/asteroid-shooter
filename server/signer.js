@@ -1,5 +1,6 @@
 // Shared logic for the score-signing backend (DRAFT, not deployed).
 // Keep this file free of Vercel specifics so it can be unit-tested with plain node.
+import { checkPlausible } from "./guards.js";
 import { Contract, JsonRpcProvider, Wallet, getAddress, isAddress, keccak256, toUtf8Bytes } from "ethers";
 
 export const LEADERBOARD_ABI = [
@@ -91,6 +92,15 @@ export async function signScore(req, cfg) {
   if (elapsed < minSecs) throw new RejectError(422, "game too short");
   // Same ceiling the contract enforces; the backend can be stricter than the chain.
   if (score > elapsed * maxPps) throw new RejectError(422, "score too high for game length");
+  // Stricter check with the server's own clock (session token) and the real game's max fire rate.
+  if (cfg.serverStartedAtMs != null) {
+    checkPlausible({
+      score,
+      chainElapsedSec: Number(elapsed),
+      serverElapsedMs: (cfg.nowMs ?? Date.now()) - cfg.serverStartedAtMs,
+      maxPointsPerSecond: maxPps,
+    });
+  }
 
   const deadline = now + BigInt(SIGNATURE_TTL_SECONDS);
   const nameHash = keccak256(toUtf8Bytes(name));
