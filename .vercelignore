@@ -11,3 +11,5 @@ foundry.toml
 foundry.lock
 ISSUES.md
 .gitmodules
+broadcast/
+.env*
