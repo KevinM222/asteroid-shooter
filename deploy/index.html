@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Deploy LeaderboardV2 (owner tool)</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; background:#0b0f1a; color:#e8ecf3; margin:0; padding:16px; max-width:640px; margin:auto; }
+  h1 { font-size:20px; } h2 { font-size:16px; margin-top:24px; border-top:1px solid #2a3350; padding-top:16px; }
+  button { width:100%; padding:14px; font-size:16px; font-weight:bold; border:0; border-radius:10px; background:#32FF9A; color:#000; margin:6px 0; }
+  button:disabled { background:#3a4256; color:#8a93a8; }
+  button.warn { background:#F7931A; }
+  .box { background:#141a2b; border-radius:10px; padding:10px; font-size:13px; word-break:break-all; }
+  .ok { color:#32FF9A; } .bad { color:#FF5A5A; } .muted { color:#8a93a8; font-size:12px; }
+  input { width:100%; box-sizing:border-box; padding:10px; font-size:14px; border-radius:8px; border:1px solid #2a3350; background:#0b0f1a; color:#e8ecf3; }
+  a { color:#32FF9A; }
+  table { width:100%; border-collapse:collapse; } td { padding:3px 4px; vertical-align:top; } td:first-child { color:#8a93a8; white-space:nowrap; }
+</style>
+</head>
+<body>
+<h1>🚀 Deploy LeaderboardV2: owner tool</h1>
+<p class="muted">Open this page in the <b>MetaMask app's browser</b> with wallet 0xacfc…fb30 on <b>Base</b>. Every action is a normal MetaMask transaction that you review and confirm. This page never sees a private key.</p>
+
+<div id="status" class="box">Loading…</div>
+<button id="connect">1. Connect MetaMask</button>
+
+<h2>2. Deploy</h2>
+<div class="box"><table id="args"></table></div>
+<div id="estimate" class="muted"></div>
+<button id="deploy" disabled>Deploy LeaderboardV2</button>
+<div id="deployOut" class="box" style="display:none"></div>
+
+<h2>Already deployed? Paste the V2 address</h2>
+<input id="v2input" placeholder="0x…" autocomplete="off">
+<button id="usev2" disabled>Use this address</button>
+
+<h2>3. Check the new contract</h2>
+<div id="checks" class="box">-</div>
+
+<h2>4. Give V2 mint rights on AST</h2>
+<div class="muted">AST.grantRole(MINTER_ROLE, V2)</div>
+<button id="grant" disabled>Grant MINTER_ROLE to V2</button>
+
+<h2>5. Remove mint rights from the old board</h2>
+<div class="muted">AST.revokeRole(MINTER_ROLE, 0xEFd9…47E6A)</div>
+<button id="revoke" class="warn" disabled>Revoke MINTER_ROLE from old Leaderboard 0xEFd9</button>
+
+<h2>Roles now</h2>
+<div id="roles" class="box">-</div>
+<div id="log" class="muted"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.11.1/dist/ethers.umd.min.js" integrity="sha384-POWgdAoUVoSKkKYCBiE8vhaiaawRSqMLmzJK50pZmRICRfkn2pYEHFRmn7Bogvej" crossorigin="anonymous"></script>
+<script src="/deploy/leaderboard-v2-artifact.js"></script>
+<script src="/deploy/deploy.js"></script>
+</body>
+</html>
