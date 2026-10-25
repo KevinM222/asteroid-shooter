@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://asteroid-shooter-alpha.vercel.app/sitemap.xml
