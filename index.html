@@ -1549,6 +1549,27 @@ startButton.addEventListener("click", async () => {
       const url = xIntentUrl(); shareXEl.href = url;
       const n = Number(score) || 0; copyQuiet(shareText(n) + ' ' + shareUrl());
       const openUrl = sdk?.actions?.openUrl;
+      // v5.10: on phones try the X app scheme first (universal links don't fire from in-app webviews),
+      // then fall back to the x.com intent if the page is still visible after ~1.2s.
+      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        ev.preventDefault();
+        const appUrl = `twitter://post?message=${encodeURIComponent(shareText(n) + ' ' + shareUrl())}`;
+        let left = false; const mark = () => { left = true; };
+        // only a real app switch (page hidden) counts; a blur alone can be iOS's 'Open in X?' / error sheet
+        window.addEventListener('pagehide', mark, { once: true });
+        document.addEventListener('visibilitychange', mark, { once: true });
+        try {
+          if (window.__inMiniApp && typeof openUrl === 'function') Promise.resolve().then(() => openUrl(appUrl)).catch(() => {});
+          else location.href = appUrl;
+        } catch (e) {}
+        setTimeout(() => {
+          window.removeEventListener('pagehide', mark); document.removeEventListener('visibilitychange', mark);
+          if (left || document.visibilityState !== 'visible') return;
+          if (window.__inMiniApp && typeof openUrl === 'function') Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
+          else { const w = window.open(url, '_blank', 'noopener'); if (!w) location.href = url; }
+        }, 1200);
+        return;
+      }
       if (window.__inMiniApp && typeof openUrl === 'function') {
         ev.preventDefault();
         Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
