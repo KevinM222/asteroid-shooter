@@ -72,6 +72,28 @@
           "value": "public, max-age=3600"
         }
       ]
+    },
+    {
+      "source": "/manifest.json",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json; charset=utf-8"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    },
+    {
+      "source": "/favicon.ico",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "image/x-icon"
+        }
+      ]
     }
   ]
 }
