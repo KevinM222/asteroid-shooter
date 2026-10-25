@@ -123,10 +123,10 @@
       <span id="usdc-balance" style="font-variant-numeric:tabular-nums;">USDC: 0</span>
     </div>
     <div class="buy-buttons">
-      <button id="buy-1">1 Life: $0.10</button>
-      <button id="buy-10">10 Lives: $0.90</button>
-      <button id="buy-25">25 Lives: $2.25</button>
-      <button id="buy-50">50 Lives: $4.50</button>
+      <button id="buy-1">1 Life</button>
+      <button id="buy-10">10 Lives</button>
+      <button id="buy-25">25 Lives</button>
+      <button id="buy-50">50 Lives</button>
     </div>
   </div>
 
@@ -138,7 +138,7 @@
   </div>
 
   <div id="fee-info" style="display:none;">Production Build</div>
-  <div id="prize-info">Monthly Prizes: 60% of buys to top 10 USDC + top 20 AST. Pot: <span id="pot-balance">0</span> USDC</div>
+  <div id="prize-info">Monthly Prizes: 60% of buys to top 10 USDC + top 20 AST. Pot: <span id="pot-balance">0</span> USDC<span id="life-price-note"></span></div>
   <div id="score-display">Score: 0 | Missed: 0/3</div>
   <div id="token-balance" style="display:none">Tokens: 0 AST</div>
 
@@ -251,6 +251,8 @@
       'function claimDailyLives()',
       'function packPrice(uint256 lives) view returns (uint256)',
       'function nextDailyClaimAt(address player) view returns (uint256)',
+      'function dailyCooldown() view returns (uint256)',
+      'function dailyLives() view returns (uint256)',
       'function prizePot() view returns (uint256)',
       'function getTopScores(uint256 count) view returns (tuple(address player, uint256 score, string playerName)[])',
       'function gamesStarted(address) view returns (uint256)',
@@ -1036,6 +1038,7 @@
         userAddress = ethers.getAddress(accounts[0]);
         signer = await withTimeout(provider.getSigner(userAddress), 10000, 'getSigner');
         console.log('[connect] connected', userAddress);
+        loadPackPrices().catch(() => {});
 
         let displayName = userAddress.slice(0,6) + '...' + userAddress.slice(-4);
         let avatarUrl = '';
@@ -1088,29 +1091,39 @@
     });
 
 let startButton = document.getElementById("start-game");
+let freeClaimNeeded = false;
+async function dailyClaimReady() {
+  try {
+    const next = BigInt(await lbRead().nextDailyClaimAt(userAddress));
+    const blk = await provider.getBlock('latest');
+    return next <= BigInt(blk.timestamp);
+  } catch (e) { console.warn('[start] daily check failed', e?.message || e); return false; }
+}
 startButton.addEventListener("click", async () => {
   if (!userAddress) return uiAlert("Connect wallet first");
+  freeClaimNeeded = false;
 
   // Check lives first
   if (contractsConfigured && provider && userAddress) {
     try {
       const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
       const onChainLives = Number(await c.playerLives(userAddress));
-      if (onChainLives <= 0) {
-        return uiAlert("You have 0 lives! Buy lives or claim daily/task life first.");
-      }
       lives = onChainLives;
+      if (onChainLives <= 0) {
+        // v5.7 free play: claim the free life and start in ONE wallet confirmation.
+        freeClaimNeeded = useV2 && (await dailyClaimReady());
+        if (!freeClaimNeeded) {
+          let when = '';
+          try { const next = Number(await c.nextDailyClaimAt(userAddress)); if (next) when = ' Next free life: ' + new Date(next * 1000).toLocaleString(); } catch (e) {}
+          return uiAlert("You have 0 lives." + when);
+        }
+      }
     } catch (e) {
       console.error("Lives check failed", e);
     }
   }
 
-  if (lives !== null && lives <= 0) return uiAlert("No lives left! Buy more or complete tasks.");
-
-  if (!(await uiConfirm(`Spend 1 life to start?\nLives remaining: ${lives === null ? 'unknown' : lives}`))) {
-    startButton.disabled = false;
-    return;
-  }
+  if (lives !== null && lives <= 0 && !freeClaimNeeded) return uiAlert("No lives left!");
 
   startButton.disabled = true;
   const playerName = cleanPlayerName(sdk?.context?.user?.username || document.getElementById('whoami').textContent, "Guest");
@@ -1123,8 +1136,17 @@ startButton.addEventListener("click", async () => {
       if (useV2) {
         const before = BigInt(await lbRead().gamesStarted(userAddress));
         console.log('[start] gamesStarted before', before.toString());
-        await sendAndConfirm([{ to: leaderboardAddress, data: lbIface().encodeFunctionData('startGame', []) }],
-          async () => BigInt(await lbRead().gamesStarted(userAddress)) > before, 'Start game');
+        const startCall = { to: leaderboardAddress, data: lbIface().encodeFunctionData('startGame', []) };
+        const calls = [];
+        if (freeClaimNeeded) {
+          // claim + start in one wallet_sendCalls batch (fallback: two txs, the first confirmed by its life landing)
+          const livesBefore = BigInt(await lbRead().playerLives(userAddress));
+          calls.push({ to: leaderboardAddress, data: lbIface().encodeFunctionData('claimDailyLives', []),
+            check: async () => BigInt(await lbRead().playerLives(userAddress)) > livesBefore });
+          console.log('[start] 0 lives → batching claimDailyLives + startGame');
+        }
+        calls.push(startCall);
+        await sendAndConfirm(calls, async () => BigInt(await lbRead().gamesStarted(userAddress)) > before, freeClaimNeeded ? 'Claim free life + start' : 'Start game');
         const gameId = BigInt(await lbRead().gamesStarted(userAddress));
         console.log('[start] game id', gameId.toString());
         startButton.innerText = 'Opening score session…';
@@ -1201,10 +1223,49 @@ startButton.addEventListener("click", async () => {
       }
     }
 
-    document.getElementById("buy-1").addEventListener("click", () => buyLives(1, 0.10));
-    document.getElementById("buy-10").addEventListener("click", () => buyLives(10, 0.90));
-    document.getElementById("buy-25").addEventListener("click", () => buyLives(25, 2.25));
-    document.getElementById("buy-50").addEventListener("click", () => buyLives(50, 4.50));
+    // v5.7: pack prices come from LeaderboardV2.packPrice(lives) on-chain (USDC, 6 decimals) – never hardcoded.
+    // FALLBACK is only shown until the chain answers (current intended prices: $0.01/life, 10% off packs).
+    const PACK_SIZES = [1, 10, 25, 50];
+    const PACK_PRICE_FALLBACK = { 1: 0n, 10: 0n, 25: 0n, 50: 0n }; // free play: nothing for sale unless the chain says so
+    const FREE_PLAY_HTML = 'Free to play — you only pay the network fee to save your score and earn AST.';
+    const PAID_PRIZE_HTML = document.getElementById('prize-info').innerHTML;
+    const packPrices = { ...PACK_PRICE_FALLBACK };
+    let packPricesLive = false;
+    function fmtUsd(micro) {
+      const s = ethers.formatUnits(micro, 6); // e.g. "0.225", "0.01", "4.5"
+      const [i, f = ''] = s.split('.');
+      return '$' + i + '.' + f.replace(/0+$/, '').padEnd(2, '0');
+    }
+    function renderPackPrices() {
+      PACK_SIZES.forEach((n) => {
+        const btn = document.getElementById('buy-' + n); if (!btn) return;
+        const p = packPrices[n];
+        btn.textContent = `${n} ${n === 1 ? 'Life' : 'Lives'}: ${p > 0n ? fmtUsd(p) : 'n/a'}`;
+        btn.disabled = !(p > 0n);
+        btn.style.display = p > 0n ? '' : 'none'; // unsold packs hidden
+      });
+      // v5.7 free play: paid packs + USDC prize pot are shown only if the contract actually sells packs.
+      const anyForSale = packPricesLive && PACK_SIZES.some((n) => packPrices[n] > 0n);
+      const bb = document.querySelector('.buy-buttons'); if (bb) bb.style.display = anyForSale ? '' : 'none';
+      const pi = document.getElementById('prize-info'); if (pi) pi.innerHTML = anyForSale ? PAID_PRIZE_HTML : FREE_PLAY_HTML;
+      const note = document.getElementById('life-price-note');
+      if (note) note.textContent = packPrices[1] > 0n ? ` · 1 life = ${fmtUsd(packPrices[1])}` : '';
+
+    }
+    async function loadPackPrices(prov) {
+      if (!useV2) return renderPackPrices();
+      try {
+        const p = prov || provider || new ethers.JsonRpcProvider('https://mainnet.base.org', 8453, { staticNetwork: true });
+        const c = new ethers.Contract(leaderboardAddress, lbAbi, p);
+        const vals = await withTimeout(Promise.all(PACK_SIZES.map((n) => c.packPrice(n))), 8000, 'packPrice');
+        PACK_SIZES.forEach((n, i) => { packPrices[n] = BigInt(vals[i]); });
+        packPricesLive = true;
+      } catch (e) { console.warn('[prices] using fallback', e?.message || e); }
+      renderPackPrices();
+    }
+    renderPackPrices();
+    document.addEventListener('DOMContentLoaded', () => loadPackPrices());
+    PACK_SIZES.forEach((n) => document.getElementById('buy-' + n).addEventListener('click', () => buyLives(n, Number(packPrices[n]) / 1e6)));
 
     let buyInProgress = false;
     async function buyLives(amount, usdPrice) {
@@ -1323,7 +1384,7 @@ startButton.addEventListener("click", async () => {
         const bal = useV2
           ? await new ethers.Contract(leaderboardAddress, lbAbi, provider).prizePot()
           : await new ethers.Contract(usdcAddress, usdcAbi, provider).balanceOf(leaderboardAddress);
-        document.getElementById("pot-balance").innerText = ethers.formatUnits(bal, 6);
+        const potEl = document.getElementById("pot-balance"); if (potEl) potEl.innerText = ethers.formatUnits(bal, 6);
       } catch (err) { console.error("Pot error:", err); }
     }
 
