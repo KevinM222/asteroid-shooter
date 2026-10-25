@@ -467,6 +467,8 @@
     const sdkReady = initSdk();
 
     let gameplayActive = false;
+    let gameEnded = true;       // v5.9: gameOver/submit run once per game
+    let resultsLocked = false;  // v5.9: a confirmed result can't be overwritten
     const MAX_SHIELDS = 3;
     const MISSES_ALLOWED = 3;
     let lives = null; // v4.64: unknown until read from the Leaderboard contract
@@ -521,6 +523,8 @@
     }
 
     function setResultsState(state, { txHash = null, astMinted = null, error = '' } = {}) {
+      if (resultsLocked && state !== 'confirmed') { console.warn('[results] ignored', state, 'after confirmed:', error); return; }
+      if (state === 'confirmed') resultsLocked = true;
       const astDiv = document.getElementById('results-ast');
       const txDiv = document.getElementById('results-tx');
       astDiv.replaceChildren();
@@ -685,7 +689,7 @@
             asteroid.destroy();
             misses++;
             updateScoreDisplay();
-            if (misses >= MISSES_ALLOWED) this.gameOver();
+            if (misses >= MISSES_ALLOWED && !gameEnded) this.gameOver();
           }
         });
       }
@@ -738,6 +742,7 @@
       }
 
       hitShip(shipObj, asteroid) {
+        if (!gameplayActive || gameEnded) return; // physics keeps running after game over
         asteroid.destroy();
         shields = Math.max(0, shields - 1);
         updateTopBar().catch(console.error);
@@ -750,6 +755,7 @@
       }
 
       destroyAsteroid(laser, asteroid) {
+        if (!gameplayActive || gameEnded) return;
         if (laser) laser.destroy();
         if (asteroid) asteroid.destroy();
         score += 12;
@@ -767,6 +773,8 @@
 
       // === v4.61: gameOver() correctly inside class ===
       gameOver() {
+        if (gameEnded) { console.warn('[gameOver] ignored duplicate call'); return; }
+        gameEnded = true;
         gameplayActive = false;
         if (this.shootTimer) this.shootTimer.paused = true;
         if (this.spawnTimer) this.spawnTimer.paused = true;
@@ -787,6 +795,8 @@
                 setResultsState('confirmed', result);
                 await Promise.all([updateLeaderboard(), getTokenBalance(), updateAstFacts()]);
                 checkNewHighScoreAndShowBanner(finalScore);
+              } else if (result.status === 'skipped' || resultsLocked) {
+                console.warn('[submit] skipped:', result.error);
               } else {
                 setResultsState('failed', result);
                 showToast(`❌ Score not saved on-chain\n${result.error}`, true);
@@ -1179,6 +1189,7 @@ startButton.addEventListener("click", async () => {
         countdownText.setText("GO!");
         sceneInstance.time.delayedCall(600, () => {
           countdownText.destroy();
+          gameEnded = false; resultsLocked = false;
           gameplayActive = true;
           sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
             delay: 1200, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
@@ -1219,7 +1230,7 @@ startButton.addEventListener("click", async () => {
       } catch (e) {
         console.warn('Session open failed; this score cannot be signed', e);
         showToast('⚠️ Score server unavailable: you can play, but this score may not be saved.', true);
-        return { gameId, session: null };
+        return { gameId, session: null, sessionError: shortError(e) };
       }
     }
 
@@ -1310,19 +1321,21 @@ startButton.addEventListener("click", async () => {
     async function submitScoreToChain(finalScore, playerName = "Player") {
       if (!contractsConfigured || !signer || finalScore < 1) return { status: 'skipped', error: 'Not connected' };
       if (!useV2) return { status: 'failed', error: LEGACY_MSG };
-      if (!currentGame?.session) return { status: 'failed', error: 'No score session for this game (score server was unavailable at start)' };
+      const game = currentGame;
+      if (!game) return { status: 'skipped', error: 'No active game (already submitted)' };
+      if (!game.session) return { status: 'failed', error: game.sessionError ? `No score session for this game (score server was unavailable at start: ${game.sessionError})` : 'No score session for this game' };
       let txHash = null;
       try {
         const r = await fetch(ECONOMY.SCORE_API, {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ player: userAddress, gameId: currentGame.gameId.toString(), score: finalScore,
-                                 name: cleanPlayerName(playerName), session: currentGame.session })
+          body: JSON.stringify({ player: userAddress, gameId: game.gameId.toString(), score: finalScore,
+                                 name: cleanPlayerName(playerName), session: game.session })
         });
         const signed = await r.json().catch(() => ({}));
         if (!r.ok) return { status: 'failed', error: `Score server: ${signed.error || 'HTTP ' + r.status}` };
         const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
         const before = await token.balanceOf(userAddress).catch(() => null);
-        const gid = BigInt(currentGame.gameId);
+        const gid = BigInt(game.gameId);
         const data = lbIface().encodeFunctionData('submitScore', [gid, signed.score, signed.name, signed.deadline, signed.signature]);
         currentGame = null;
         const sent = await sendAndConfirm([{ to: leaderboardAddress, data }], async () => (await lbRead().games(userAddress, gid)).submitted, 'Submit score');
