@@ -153,7 +153,8 @@
       <div style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
         <button id="play-again-btn" style="font-size:18px; padding:14px 40px; width: 240px; border-color:#F7931A; background: linear-gradient(45deg, #0A0F2E, #111);">Play Again (1 Life)</button>
         <button id="return-home-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: #111; border: 2px solid #555;">← Return to Home</button>
-        <button id="share-base-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: linear-gradient(45deg, #0A0F2E, #111); border: 2px solid #32FF9A; color:#32FF9A;">🚀 Share on Base</button>
+        <button id="share-base-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: linear-gradient(45deg, #0A0F2E, #111); border: 2px solid #32FF9A; color:#32FF9A;">🚀 Share Score</button>
+        <div style="display:flex; gap:8px;"><button id="share-fc-btn" style="font-size:13px; padding:8px 14px; background:#111; border:1px solid #8a63d2; color:#c9b3ff;">Farcaster</button><button id="share-x-btn" style="font-size:13px; padding:8px 14px; background:#111; border:1px solid #888; color:#eee;">Post on X</button></div>
       </div>
     </div>
   </div>
@@ -447,6 +448,7 @@
       if (!fc) { console.log('[connect] mini-app SDK not loaded – browser wallet mode'); return; }
       let inMiniApp = false;
       try { inMiniApp = await withTimeout(fc.isInMiniApp(1500), 2000, 'isInMiniApp'); } catch (e) { console.warn('[connect]', e.message); }
+      window.__inMiniApp = !!inMiniApp;
       if (!inMiniApp) { console.log('[connect] not inside a mini-app host – browser wallet mode'); return; }
       console.log('[connect] mini-app host detected');
       try {
@@ -811,22 +813,106 @@
       if (sceneInstance && sceneInstance.sys.isActive()) placeShip(sceneInstance, gameplayActive);
     });
 
-    function visibleHeight() { return Math.round(window.visualViewport ? window.visualViewport.height : window.innerHeight); }
+    // v5.2: measure the *real* visible area (visualViewport), never vh/innerHeight alone – in-app browsers
+    // (Coinbase/Base app) overlay their own top bar and bottom toolbar.
+    function vv() {
+      const v = window.visualViewport;
+      return v ? { h: v.height, top: v.offsetTop } : { h: window.innerHeight, top: 0 };
+    }
+    function visibleHeight() { return Math.round(vv().h); }
+    let _safeProbe;
+    function safeInsets() {
+      if (!_safeProbe) {
+        _safeProbe = document.createElement('div');
+        _safeProbe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
+        document.body.appendChild(_safeProbe);
+      }
+      const cs = getComputedStyle(_safeProbe);
+      return { top: parseFloat(cs.paddingTop) || 0, bottom: parseFloat(cs.paddingBottom) || 0 };
+    }
     function setViewportVar() { document.documentElement.style.setProperty('--vvh', visibleHeight() + 'px'); }
 
+    let _lastSize = '';
     function optimizeGameSize() {
       setViewportVar();
       const container = document.getElementById('game-container');
+      if (!container) return;
+      const v = vv(), safe = safeInsets();
+      let key;
       if (document.body.classList.contains('game-mode')) {
-        container.style.height = ''; // CSS sizes it to the visible viewport
+        // Pin to the visible viewport (offsetTop handles a toolbar-shifted visual viewport).
+        const top = Math.round(v.top + safe.top), h = Math.floor(v.h - safe.top - safe.bottom);
+        container.style.setProperty('top', top + 'px', 'important');
+        container.style.setProperty('height', h + 'px', 'important');
+        key = 'g' + top + 'x' + h;
       } else {
-        // Pre-game: canvas fills what's left of the visible viewport under the header (no page scroll needed).
-        const top = container.getBoundingClientRect().top + window.scrollY;
-        const targetH = Math.max(220, Math.min(520, visibleHeight() - top - 8));
-        container.style.height = `${targetH}px`;
+        container.style.removeProperty('top');
+        // Pre-game: everything from the container's top to the bottom of the *visible* area, measured live
+        // (connected state adds lines to the header, so this is re-run whenever the header resizes).
+        const rect = container.getBoundingClientRect();
+        const topInVisible = rect.top - v.top;
+        const avail = Math.floor(v.h - topInVisible - safe.bottom - 10);
+        const h = Math.max(140, Math.min(520, avail));
+        container.style.setProperty('min-height', '0px', 'important');
+        container.style.setProperty('box-sizing', 'border-box', 'important');
+        container.style.setProperty('height', h + 'px', 'important');
+        // Self-correct with the real rendered box (borders, rounding, anything we didn't account for).
+        const over = Math.ceil(container.getBoundingClientRect().bottom - (v.top + v.h - safe.bottom - 10));
+        if (over > 0) container.style.setProperty('height', Math.max(140, h - over) + 'px', 'important');
+        key = 'p' + h + 'w' + Math.round(rect.width);
       }
+      _lastSize = key;
       if (game && game.scale) game.scale.refresh();
+      updateDebugOverlay();
     }
+    // ?debug=1 → on-screen numbers Kevin can screenshot.
+    const DEBUG_LAYOUT = /[?&]debug=1\b/.test(location.search);
+    let _dbg;
+    function updateDebugOverlay() {
+      if (!DEBUG_LAYOUT) return;
+      if (!_dbg) {
+        _dbg = document.createElement('div');
+        _dbg.id = 'layout-debug';
+        _dbg.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:9999;background:rgba(0,0,0,.8);color:#0f0;font:11px/1.3 monospace;padding:4px 6px;border:1px solid #0f0;pointer-events:none;white-space:pre;text-align:left';
+        document.body.appendChild(_dbg);
+      }
+      const v = vv(), safe = safeInsets();
+      const cv = document.querySelector('#game-container canvas');
+      const r = cv ? cv.getBoundingClientRect() : null;
+      let shipLine = 'ship: –';
+      try {
+        const sc = game.scene.scenes[0];
+        if (ship && r) {
+          const k = r.height / sc.scale.height, s = baseScale * 1.6;
+          shipLine = `ship y=${Math.round(ship.y)} screenBottom=${Math.round(r.top + (ship.y + 34 * s) * k)} world=${Math.round(sc.scale.width)}x${Math.round(sc.scale.height)}`;
+        }
+      } catch (e) {}
+      const visBottom = Math.round(v.top + v.h);
+      _dbg.textContent = `innerH=${innerHeight} vv.h=${Math.round(v.h)} vv.top=${Math.round(v.top)} visBottom=${visBottom}\n` +
+        `safe t/b=${safe.top}/${safe.bottom} mode=${document.body.classList.contains('game-mode') ? 'play' : 'pre'} scrollY=${Math.round(scrollY)}\n` +
+        (r ? `canvas top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} w=${Math.round(r.width)} ${r.bottom <= visBottom + 1 ? 'OK' : 'OFF-SCREEN'}` : 'canvas: –') + '\n' + shipLine;
+    }
+    if (DEBUG_LAYOUT) setInterval(updateDebugOverlay, 500);
+    // Re-measure whenever anything above the canvas changes size (connect, token line, balances…).
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(() => optimizeGameSize());
+      document.addEventListener('DOMContentLoaded', () => {
+        let el = document.getElementById('game-container');
+        while (el && el !== document.body) {
+          let sib = el.previousElementSibling;
+          while (sib) { ro.observe(sib); sib = sib.previousElementSibling; }
+          el = el.parentElement;
+        }
+      });
+    }
+    if (window.visualViewport) window.visualViewport.addEventListener('scroll', optimizeGameSize);
+    // Safety net: if anything above the canvas moved (e.g. the connected "Tokens" line appears), re-fit.
+    let _lastTop = null;
+    setInterval(() => {
+      const c = document.getElementById('game-container'); if (!c) return;
+      const t = Math.round(c.getBoundingClientRect().top) + '|' + visibleHeight();
+      if (t !== _lastTop) { _lastTop = t; optimizeGameSize(); }
+    }, 400);
     function enterPlayMode() {
       window.scrollTo(0, 0);
       document.body.classList.add('game-mode');
@@ -1288,22 +1374,48 @@ startButton.addEventListener("click", async () => {
       updateDailyClaim();
     });
 
-    async function shareOnBase(theScore) {
-      const n = Number(theScore) || 0;
-      const fallback = () => window.open(`https://base.app/compose?text=${encodeURIComponent(`Just scored ${n} in Asteroid Shooter on Base!`)}`, "_blank", "noopener");
-      const compose = sdk?.actions?.composeCast;
-      if (typeof compose !== 'function') return fallback();
-      try {
-        const res = await compose({
-          text: `Just scored ${n} in Asteroid Shooter on Base! 🚀 Can you beat me?`,
-          embeds: [window.location.origin + '/']
-        });
-        if (res?.cast) uiAlert("Score shared!");
-      } catch (err) {
-        fallback();
-      }
+    // v5.2: the base.app / wallet.coinbase.com compose deep link is dead (404 in the Coinbase Wallet app).
+    function uiToast(msg) {
+      const t = document.createElement('div');
+      t.textContent = msg;
+      t.style.cssText = 'position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translateX(-50%);z-index:10000;background:#111;color:#32FF9A;border:1px solid #32FF9A;border-radius:8px;padding:10px 16px;font-size:14px;max-width:90vw';
+      document.body.appendChild(t); setTimeout(() => t.remove(), 2500);
     }
-    document.getElementById("share-base-btn").addEventListener("click", () => shareOnBase(score));
+    function shareText(n) { return `Just scored ${n} in Asteroid Shooter on Base! 🚀 Can you beat me?`; }
+    function shareUrl() { return window.location.origin + '/'; }
+    async function copyShareLink(n) {
+      const txt = `${shareText(n)} ${shareUrl()}`;
+      try { await navigator.clipboard.writeText(txt); uiToast('Link copied to clipboard'); return; } catch (e) {}
+      try {
+        const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove();
+        if (ok) return uiToast('Link copied to clipboard');
+      } catch (e) {}
+      uiAlert(txt);
+    }
+    async function shareScore(theScore) {
+      const n = Number(theScore) || 0;
+      const compose = sdk?.actions?.composeCast;
+      if (window.__inMiniApp && typeof compose === 'function') {
+        try { await withTimeout(compose({ text: shareText(n), embeds: [shareUrl()] }), 8000, 'composeCast'); return; }
+        catch (e) { console.warn('[share] composeCast failed', e?.message || e); }
+      }
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Asteroid Shooter', text: shareText(n), url: shareUrl() }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; console.warn('[share] navigator.share failed', e); }
+      }
+      await copyShareLink(n);
+    }
+    function openExternal(url) { const w = window.open(url, '_blank', 'noopener'); if (!w) location.href = url; }
+    document.getElementById('share-fc-btn').addEventListener('click', () => {
+      const n = Number(score) || 0;
+      openExternal(`https://farcaster.xyz/~/compose?text=${encodeURIComponent(shareText(n))}&embeds[]=${encodeURIComponent(shareUrl())}`);
+    });
+    document.getElementById('share-x-btn').addEventListener('click', () => {
+      const n = Number(score) || 0;
+      openExternal(`https://x.com/intent/post?text=${encodeURIComponent(shareText(n))}&url=${encodeURIComponent(shareUrl())}`);
+    });
+    document.getElementById("share-base-btn").addEventListener("click", () => shareScore(score));
 
     document.getElementById("return-home-btn").addEventListener("click", () => {
       hideResultsOverlay();
