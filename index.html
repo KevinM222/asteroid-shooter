@@ -322,20 +322,27 @@
     // v5.0: Farcaster / Base mini-app SDK. ready() hides the client's splash screen; without it the
     // app can hang on the splash inside Farcaster/Base clients. Outside a mini-app host sdk stays null.
     let fcProvider = null;
+    // Every host call gets a timeout: in the Base app / Coinbase in-app browser window.ReactNativeWebView exists, so
+    // SDK messages are posted to a "host" that never answers. An un-timed await there hung Connect forever.
+    function withTimeout(p, ms, label) {
+      return Promise.race([Promise.resolve(p), new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' timed out after ' + ms + ' ms')), ms))]);
+    }
     async function initSdk() {
       const fc = window.farcasterMiniAppSdk;
-      if (!fc) { console.log('Mini-app SDK not loaded – browser wallet mode'); return; }
+      if (!fc) { console.log('[connect] mini-app SDK not loaded – browser wallet mode'); return; }
+      let inMiniApp = false;
+      try { inMiniApp = await withTimeout(fc.isInMiniApp(1500), 2000, 'isInMiniApp'); } catch (e) { console.warn('[connect]', e.message); }
+      if (!inMiniApp) { console.log('[connect] not inside a mini-app host – browser wallet mode'); return; }
+      console.log('[connect] mini-app host detected');
       try {
-        const inMiniApp = await fc.isInMiniApp().catch(() => false);
-        if (!inMiniApp) { console.log('Not inside a mini-app host – browser wallet mode'); return; }
-        const context = await fc.context.catch(() => null);
+        const context = await withTimeout(fc.context, 1500, 'sdk.context').catch(() => null);
         sdk = { actions: fc.actions, context: { user: context?.user ? { ...context.user, pfp_url: context.user.pfpUrl } : null } };
-        fcProvider = await fc.wallet.getEthereumProvider().catch(() => null);
+        fcProvider = await withTimeout(fc.wallet.getEthereumProvider(), 1500, 'getEthereumProvider').catch((e) => { console.warn('[connect]', e.message); return null; });
       } catch (e) {
-        console.warn('Mini-app SDK init failed', e);
+        console.warn('[connect] mini-app SDK init failed', e);
       } finally {
-        // Always dismiss the splash, even if context/wallet failed.
-        try { await fc.actions.ready(); } catch (e) { console.warn('sdk.actions.ready failed', e); }
+        // Dismiss the host splash. Fire-and-forget with a timeout; never block on it.
+        withTimeout(fc.actions.ready(), 3000, 'sdk.actions.ready').catch((e) => console.warn('[connect]', e.message));
       }
     }
     const sdkReady = initSdk();
@@ -736,20 +743,27 @@
       button.innerText = 'Connecting...';
       button.disabled = true;
       try {
-        await sdkReady;
-        const eip1193 = fcProvider || window.ethereum;
-        if (eip1193) {
-          await eip1193.request({ method: "eth_requestAccounts" });
-          const net = await eip1193.request({ method: "eth_chainId" });
-          if (Number(net) !== 8453) {
-            await eip1193.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
-          }
-          provider = new ethers.BrowserProvider(eip1193);
-          signer = await provider.getSigner();
-          userAddress = await signer.getAddress();
-        } else {
-          throw new Error('No wallet detected');
+        console.log('[connect] start');
+        await withTimeout(sdkReady, 4000, 'mini-app SDK init').catch((e) => console.warn('[connect]', e.message));
+        // Prefer the injected wallet (Base app / Coinbase / MetaMask); the mini-app provider is the fallback.
+        const eip1193 = window.ethereum || fcProvider;
+        console.log('[connect] provider:', window.ethereum ? 'window.ethereum' : fcProvider ? 'mini-app SDK' : 'none');
+        if (!eip1193) throw new Error('No wallet found. Open this page in the Base app browser or a wallet browser.');
+        button.innerText = 'Approve in wallet...';
+        const accounts = await withTimeout(eip1193.request({ method: "eth_requestAccounts" }), 120000, 'Wallet connection request');
+        console.log('[connect] accounts', accounts);
+        if (!accounts || !accounts.length) throw new Error('Wallet returned no account');
+        const net = await withTimeout(eip1193.request({ method: "eth_chainId" }), 10000, 'eth_chainId');
+        console.log('[connect] chainId', net);
+        if (Number(net) !== 8453) {
+          button.innerText = 'Switch to Base in wallet...';
+          await withTimeout(eip1193.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }), 60000, 'Switch to Base');
         }
+        // Static network: skip ethers' network auto-detection (another place that can stall).
+        provider = new ethers.BrowserProvider(eip1193, { chainId: 8453, name: 'base' }, { staticNetwork: true });
+        userAddress = ethers.getAddress(accounts[0]);
+        signer = await withTimeout(provider.getSigner(userAddress), 10000, 'getSigner');
+        console.log('[connect] connected', userAddress);
 
         let displayName = userAddress.slice(0,6) + '...' + userAddress.slice(-4);
         let avatarUrl = '';
@@ -791,9 +805,11 @@
         await refreshDailyFromChain();
         updateDailyClaim();
       } catch (err) {
-        console.error('Connect error:', err.message);
+        console.error('[connect] error:', err);
+        const msg = err?.code === 4001 ? 'Request rejected in wallet' : (err?.shortMessage || err?.message || String(err));
         button.innerText = prevText;
         button.disabled = false;
+        alert('Could not connect: ' + msg);
       } finally {
         isConnecting = false;
       }
