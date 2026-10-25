@@ -68,3 +68,9 @@ Verification is unchanged by CREATE2: same contract, same constructor args, and 
 The page deploys the exact `forge build` output of this commit (bytecode keccak shown on the page), so the repo source
 matches. For a Remix deploy, Blockscout can also take the flattened file with the settings above. Basescan shows
 Sourcify-verified source, or verify there later with a new Etherscan key.
+
+## Game economy (free play ⇄ pay to play)
+Section 6 on this page (owner wallet only):
+- **Free play settings**: one batch setting all pack prices to 0 plus `setLifeRules(0, 1)`. Anyone with 0 lives can claim a free life at any time. The game hides the buy buttons and the USDC pot automatically.
+- **Pay to play settings**: one batch setting pack prices from the input (6-decimal USDC; default 0.10/0.90/2.25/4.50) plus `setLifeRules(86400, 1)`. The buy buttons and pot come back automatically.
+Each mode is confirmed by reading back dailyCooldown, dailyLives and packPrice.

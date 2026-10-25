@@ -199,7 +199,7 @@
       all &= line("scoreSigner", s === SIGNER, s);
       all &= line("token (AST)", tok === AST, tok);
       all &= line("usdc", usdc === USDC, usdc);
-      all &= line("10-pack price", p10 === 900000n, `${ethers.formatUnits(p10, 6)} USDC`);
+      line("10-pack price", true, p10 === 0n ? "0 (free play)" : `${ethers.formatUnits(p10, 6)} USDC`);
       all &= line("paused", paused === false, String(paused));
       const b = document.createElement("div"); b.append("Basescan: ", link("address", v2)); box.append(b);
       $("grant").disabled = !all;
@@ -209,6 +209,7 @@
       box.append(v);
     } catch (e) { line("read", false, errText(e)); }
     await refreshRoles();
+    await refreshEcon();
   }
 
   const hasRole = (who) => provider.call({ to: AST, data: AST_IFACE.encodeFunctionData("hasRole", [MINTER_ROLE, who]) })
@@ -244,6 +245,64 @@
     } catch (e) { log(`${kind} failed: ${errText(e)}`); btn.textContent = prev; btn.disabled = false; }
     await refreshRoles();
   }
+
+  // ---- 6. economy settings -------------------------------------------------------------------------
+  const PACKS = [1n, 10n, 25n, 50n];
+  async function readEcon() {
+    const c = new ethers.Contract(v2, ART.abi, provider);
+    const [cd, dl, ...prices] = await Promise.all([c.dailyCooldown(), c.dailyLives(), ...PACKS.map((n) => c.packPrice(n))]);
+    return { cd: BigInt(cd), dl: BigInt(dl), prices: prices.map(BigInt) };
+  }
+  async function refreshEcon() {
+    const box = $("econ"); if (!v2) return;
+    try {
+      const e = await readEcon();
+      const free = e.prices.every((p) => p === 0n);
+      box.textContent = `Mode: ${free ? "FREE PLAY" : "PAY TO PLAY"} · dailyCooldown ${e.cd}s · dailyLives ${e.dl} · prices ` +
+        PACKS.map((n, i) => `${n}=${ethers.formatUnits(e.prices[i], 6)}`).join(", ") + " USDC";
+      box.className = "box ok";
+      $("freeplay").disabled = false; $("paytoplay").disabled = false;
+    } catch (err) { box.textContent = "read failed: " + errText(err); box.className = "box bad"; }
+  }
+  // Send several calls: one wallet_sendCalls batch if supported, otherwise one eth_sendTransaction each.
+  async function sendBatch(calls, gasEach) {
+    if (await supportsSendCalls()) {
+      try {
+        const r = await window.ethereum.request({ method: "wallet_sendCalls", params: [{
+          version: "2.0.0", chainId: "0x2105", from: account, atomicRequired: false, calls: calls.map((c) => ({ to: c.to, data: c.data, value: "0x0" })) }] });
+        return [{ kind: "wallet_sendCalls", id: typeof r === "string" ? r : r?.id }];
+      } catch (e) { if (!isUnsupported(e)) throw e; }
+    }
+    const out = [];
+    for (const c of calls) out.push({ kind: "eth_sendTransaction", id: await window.ethereum.request({ method: "eth_sendTransaction", params: [{ from: account, to: c.to, data: c.data, value: "0x0", gas: ethers.toQuantity(gasEach) }] }) });
+    return out;
+  }
+  async function econTx(mode) {
+    const btn = $(mode); const prev = btn.textContent; btn.disabled = true; btn.textContent = "Confirm in your wallet…";
+    try {
+      await ensureReady();
+      if (!v2) throw new Error("Load V2 first");
+      let prices, cd, dl = 1n;
+      if (mode === "freeplay") { prices = [0n, 0n, 0n, 0n]; cd = 0n; }
+      else {
+        prices = $("payPrices").value.split(",").map((x) => BigInt(x.trim()));
+        if (prices.length !== 4 || prices.some((p) => p <= 0n || p > 1_000_000_000n)) throw new Error("Enter 4 positive prices in USDC micro-units, e.g. 100000,900000,2250000,4500000");
+        cd = 86400n;
+      }
+      const I = new ethers.Interface(ART.abi);
+      const calls = PACKS.map((n, i) => ({ to: v2, data: I.encodeFunctionData("setPackPrice", [n, prices[i]]) }));
+      calls.push({ to: v2, data: I.encodeFunctionData("setLifeRules", [cd, dl]) });
+      const sent = await sendBatch(calls, 100_000n);
+      sent.forEach((s, i) => showSent($("log"), `${mode} ${i + 1}/${sent.length}`, s));
+      btn.textContent = "Waiting for on-chain confirmation…";
+      await pollUntil(async () => { const e = await readEcon(); return e.cd === cd && e.dl === dl && e.prices.every((p, i) => p === prices[i]); }, mode, sent[0]);
+      log(`${mode} confirmed on-chain (dailyCooldown/dailyLives/packPrice read back)`);
+    } catch (e) { log(`${mode} failed: ${errText(e)}`); }
+    btn.textContent = prev; btn.disabled = false;
+    await refreshEcon();
+  }
+  $("freeplay").onclick = () => econTx("freeplay");
+  $("paytoplay").onclick = () => econTx("paytoplay");
 
   $("connect").onclick = connect;
   $("deploy").onclick = deploy;

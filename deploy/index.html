@@ -46,6 +46,15 @@
 <div class="muted">AST.revokeRole(MINTER_ROLE, 0xEFd9…47E6A)</div>
 <button id="revoke" class="warn" disabled>Revoke MINTER_ROLE from old Leaderboard 0xEFd9</button>
 
+<h2>6. Game economy (free play ⇄ pay to play)</h2>
+<div id="econ" class="box">Connect and load V2 first.</div>
+<div class="muted"><b>Free play</b>: all pack prices → 0 (buy buttons + prize pot disappear in the game), dailyCooldown → 0, dailyLives → 1 (a free life is claimed in the same confirmation as Start).<br>
+<b>Pay to play</b>: prices → 1=$0.10, 10=$0.90, 25=$2.25, 50=$4.50 (buy buttons + pot come back automatically), dailyCooldown → 24 h, dailyLives → 1.<br>
+Each button is ONE wallet confirmation (5 calls batched); wallets without batching get 5 confirmations.</div>
+<label class="muted">Pay-to-play prices in USDC micro-units (1, 10, 25, 50 lives)</label>
+<input id="payPrices" value="100000,900000,2250000,4500000" autocomplete="off">
+<button id="freeplay" disabled>Free play settings</button>
+<button id="paytoplay" class="warn" disabled>Pay to play settings</button>
 <h2>Roles now</h2>
 <div id="roles" class="box">-</div>
 <div id="log" class="muted"></div>
