@@ -17,7 +17,7 @@
       background: radial-gradient(circle at center, #0A0F2E 0%, #000000 100%); 
       color:#fff; 
       overflow-y: auto; 
-      height: 100vh; 
+      min-height: 100dvh; 
     }
     h1 { text-align:center; margin:8px 0; text-shadow: 0 0 15px #F7931A, 0 0 25px #0052FF; }
     h3 { text-shadow: 0 0 8px #32FF9A; }
@@ -54,13 +54,13 @@
     #new-high-banner { display:none; position:absolute; top:22%; left:50%; transform:translateX(-50%); background:#F7931A; color:#000; padding:12px 30px; font-size:28px; font-weight:bold; border-radius:12px; box-shadow:0 0 30px #F7931A, 0 0 50px #32FF9A; z-index:40; }
     @media(max-width:850px){
       #identity-bar { padding:6px 8px; gap:6px; font-size:0.9rem; }
-      #game-container { margin: 4px auto !important; height: 50vh !important; max-height: 480px !important; }
+      #game-container { margin: 4px auto !important; }
       h1 { margin:6px 0; font-size:28px; }
       #leaderboard { max-height: 180px; padding: 8px; }
       #tasks-section { margin: 8px auto; }
     }
     @media(max-width:600px){
-      #game-container { margin: 2px auto !important; height: 48vh !important; min-height: 360px; }
+      #game-container { margin: 2px auto !important; }
       button { padding: 6px 12px; font-size: 14px; margin: 2px; }
       #identity-bar { padding: 5px; gap: 4px; }
     }
@@ -80,12 +80,31 @@
     body.game-mode #leaderboard {
       display: none !important;
     }
+    /* v5.1: full-viewport play mode. --vvh = visualViewport height (the part really visible in in-app browsers;
+       100vh on iOS is the *largest* viewport and was cutting off the bottom of the play area). */
+    body.game-mode { overflow: hidden !important; position: fixed; inset: 0; height: var(--vvh, 100dvh); overscroll-behavior: none; }
+    body.game-mode #prize-info, body.game-mode #token-balance, body.game-mode #ast-facts, body.game-mode #share-score { display: none !important; }
     body.game-mode #game-container {
-      height: 92vh !important;
-      max-height: none !important;
-      margin: 0 auto !important;
-      border: 4px solid #32FF9A;
-      box-shadow: 0 0 40px #32FF9A, 0 0 80px #F7931A;
+      position: fixed !important;
+      left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px);
+      top: env(safe-area-inset-top, 0px);
+      height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+      width: auto !important; max-width: none !important; min-height: 0 !important; max-height: none !important;
+      margin: 0 !important; border: 0; box-shadow: none; animation: none; z-index: 20;
+    }
+    body.game-mode #score-display {
+      position: fixed; z-index: 25; top: calc(env(safe-area-inset-top, 0px) + 6px); left: 0; right: 0; margin: 0;
+      font-size: 15px; pointer-events: none; background: transparent;
+    }
+    body.game-mode #results-overlay { position: fixed !important; inset: 0; z-index: 40; overflow-y: auto; padding-top: 4%; }
+    /* v5.1: compact pre-game header so Start + the canvas fit on a phone without scrolling */
+    @media (max-width: 600px) {
+      .buy-buttons button { padding: 4px 7px; font-size: 12px; margin: 2px 1px; }
+      h1 { font-size: 22px !important; margin: 4px 0 !important; }
+      #prize-info, #score-display { font-size: 13px !important; margin: 3px auto !important; }
+      #connect-wallet, #start-game { padding: 7px 14px; margin: 2px 4px; }
+      #identity-bar { font-size: 0.8rem !important; }
+      #game-container { min-height: 0 !important; }
     }
   </style>
 </head>
@@ -521,7 +540,7 @@
         baseScale = Math.min(width / 800, height / 500, 1.0);
 
         // Force black background to cover any gaps
-        this.add.rectangle(0, 0, width, height, 0x000000).setOrigin(0);
+        this.bgRect = this.add.rectangle(0, 0, width, height, 0x000000).setOrigin(0);
 
         stars = [];
         for (let layer = 0; layer < 3; layer++) {
@@ -576,6 +595,7 @@
         ship.setDepth(5);
         this.add.existing(ship);
         ship.body.setSize(36 * s, 48 * s);
+        placeShip(this, false);
 
         asteroids = this.physics.add.group();
         lazerGroup = this.physics.add.group();
@@ -753,7 +773,7 @@
         if (returnBtn) {
           returnBtn.onclick = () => {
             hideResultsOverlay();
-            document.body.classList.remove('game-mode');
+            exitPlayMode();
             if (document.fullscreenElement) document.exitFullscreen();
             document.getElementById('start-game').disabled = false;
           };
@@ -771,37 +791,55 @@
       scene: GameScene
     });
 
-    let lastResizeWidth = 0;
-    game.scale.on('resize', function(gameSize) {
-      const width = gameSize.width;
-      if (width === lastResizeWidth) return;
-      lastResizeWidth = width;
-      const height = gameSize.height;
+    // v5.1: keep the whole world inside the canvas on every resize (width OR height), ship pinned near the bottom.
+    function placeShip(scene, keepX) {
+      if (!scene || !ship) return;
+      const width = scene.scale.width, height = scene.scale.height;
+      baseScale = Math.min(width / 800, height / 500, 1.0);
+      const s = baseScale * 1.6;
+      const halfW = 26 * s + 4;
+      const x = Phaser.Math.Clamp(keepX ? ship.x : width / 2, halfW, width - halfW);
+      const y = height - 34 * s - Math.max(10, height * 0.03); // thrusters end at +34*s below the origin
+      ship.x = x; ship.y = y;
+      if (ship.body) { ship.body.reset(x, y); }
+      scene.physics.world.setBounds(0, 0, width, height);
+      if (scene.bgRect) scene.bgRect.setSize(width, height);
+      stars.forEach((st) => { if (st.x > width) st.x = Math.random() * width; if (st.y > height) st.y = Math.random() * height; });
+    }
+    game.scale.on('resize', function() {
       const sceneInstance = game.scene.scenes[0];
-      if (sceneInstance && ship) {
-        baseScale = Math.min(width / 800, height / 500, 1.0);
-        const clampedX = Phaser.Math.Clamp(width / 2, 20 * baseScale * 1.5, width - 20 * baseScale * 1.5);
-        ship.x = clampedX;
-        ship.y = height * 0.85;
-        ship.body.x = clampedX;
-        ship.body.y = height * 0.85;
-      }
+      if (sceneInstance && sceneInstance.sys.isActive()) placeShip(sceneInstance, gameplayActive);
     });
 
+    function visibleHeight() { return Math.round(window.visualViewport ? window.visualViewport.height : window.innerHeight); }
+    function setViewportVar() { document.documentElement.style.setProperty('--vvh', visibleHeight() + 'px'); }
+
     function optimizeGameSize() {
+      setViewportVar();
       const container = document.getElementById('game-container');
-      const viewportH = window.innerHeight;
-      let fixedTop = 0;
-      const topElements = ['#identity-bar', 'h1', '#connect-wallet', '#fee-info', '#prize-info', '#score-display'];
-      topElements.forEach(sel => {
-        const el = document.querySelector(sel);
-        if (el) fixedTop += el.offsetHeight + 12;
-      });
-      let targetH = Math.max(380, Math.min(520, viewportH - fixedTop - 180));
-      container.style.height = `${targetH}px`;
+      if (document.body.classList.contains('game-mode')) {
+        container.style.height = ''; // CSS sizes it to the visible viewport
+      } else {
+        // Pre-game: canvas fills what's left of the visible viewport under the header (no page scroll needed).
+        const top = container.getBoundingClientRect().top + window.scrollY;
+        const targetH = Math.max(220, Math.min(520, visibleHeight() - top - 8));
+        container.style.height = `${targetH}px`;
+      }
       if (game && game.scale) game.scale.refresh();
     }
-
+    function enterPlayMode() {
+      window.scrollTo(0, 0);
+      document.body.classList.add('game-mode');
+      optimizeGameSize();
+      // iOS sometimes reports the final viewport a frame later.
+      setTimeout(optimizeGameSize, 60); setTimeout(optimizeGameSize, 300);
+    }
+    function exitPlayMode() {
+      document.body.classList.remove('game-mode');
+      optimizeGameSize(); setTimeout(optimizeGameSize, 60);
+    }
+    document.addEventListener('touchmove', (e) => { if (document.body.classList.contains('game-mode') && !e.target.closest('#results-overlay')) e.preventDefault(); }, { passive: false });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', optimizeGameSize);
     window.addEventListener('resize', optimizeGameSize);
     window.addEventListener('orientationchange', () => setTimeout(optimizeGameSize, 250));
 
@@ -966,9 +1004,8 @@ startButton.addEventListener("click", async () => {
     }
 
     // Takeover
-    document.body.classList.add('game-mode');
-    const container = document.getElementById('game-container');
-    try { container.style.height = '92vh'; } catch(e){}
+    enterPlayMode();
+    placeShip(game.scene.scenes[0], false);
 
     const sceneInstance = game.scene.scenes[0];
     setTimeout(() => {
@@ -999,7 +1036,7 @@ startButton.addEventListener("click", async () => {
     uiAlert('Failed to start (no life was spent unless the transaction confirmed): ' + shortError(err));
     startButton.innerText = 'Start Game';
     startButton.disabled = false;
-    document.body.classList.remove('game-mode');
+    exitPlayMode();
   }
 });
 
@@ -1270,6 +1307,7 @@ startButton.addEventListener("click", async () => {
 
     document.getElementById("return-home-btn").addEventListener("click", () => {
       hideResultsOverlay();
+      exitPlayMode();
       if (document.fullscreenElement) document.exitFullscreen();
       document.getElementById('start-game').disabled = false;
     });
