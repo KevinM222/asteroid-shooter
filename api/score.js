@@ -13,6 +13,7 @@ import { cors } from "../server/http.js";
 export default async function handler(req, res) {
   if (cors(req, res)) return;
   try {
+    const cfg = loadConfig(); // 503 "not configured" before any session/rate-limit work
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
     if (!isAddress(body.player)) throw new RejectError(400, "bad player");
     const player = getAddress(body.player);
@@ -21,7 +22,7 @@ export default async function handler(req, res) {
     await limit(store, `score:p:${player}`, LIMITS.scorePerPlayerPerMin, 60);
     await limit(store, `score:pd:${player}`, LIMITS.scorePerPlayerPerDay, 86400);
     const { startedAtMs } = verifySession(body.session, { player, gameId: body.gameId }, process.env.SESSION_SECRET);
-    const out = await signScore({ ...body, player }, { ...loadConfig(), serverStartedAtMs: startedAtMs });
+    const out = await signScore({ ...body, player }, { ...cfg, serverStartedAtMs: startedAtMs });
     return res.status(200).json(out);
   } catch (e) {
     const status = e instanceof RejectError ? e.status : 500;
