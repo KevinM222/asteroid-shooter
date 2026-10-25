@@ -17,7 +17,7 @@
       background: radial-gradient(circle at center, #0A0F2E 0%, #000000 100%); 
       color:#fff; 
       overflow-y: auto; 
-      height: 100vh; 
+      min-height: 100dvh; 
     }
     h1 { text-align:center; margin:8px 0; text-shadow: 0 0 15px #F7931A, 0 0 25px #0052FF; }
     h3 { text-shadow: 0 0 8px #32FF9A; }
@@ -54,13 +54,13 @@
     #new-high-banner { display:none; position:absolute; top:22%; left:50%; transform:translateX(-50%); background:#F7931A; color:#000; padding:12px 30px; font-size:28px; font-weight:bold; border-radius:12px; box-shadow:0 0 30px #F7931A, 0 0 50px #32FF9A; z-index:40; }
     @media(max-width:850px){
       #identity-bar { padding:6px 8px; gap:6px; font-size:0.9rem; }
-      #game-container { margin: 4px auto !important; height: 50vh !important; max-height: 480px !important; }
+      #game-container { margin: 4px auto !important; }
       h1 { margin:6px 0; font-size:28px; }
       #leaderboard { max-height: 180px; padding: 8px; }
       #tasks-section { margin: 8px auto; }
     }
     @media(max-width:600px){
-      #game-container { margin: 2px auto !important; height: 48vh !important; min-height: 360px; }
+      #game-container { margin: 2px auto !important; }
       button { padding: 6px 12px; font-size: 14px; margin: 2px; }
       #identity-bar { padding: 5px; gap: 4px; }
     }
@@ -80,12 +80,31 @@
     body.game-mode #leaderboard {
       display: none !important;
     }
+    /* v5.1: full-viewport play mode. --vvh = visualViewport height (the part really visible in in-app browsers;
+       100vh on iOS is the *largest* viewport and was cutting off the bottom of the play area). */
+    body.game-mode { overflow: hidden !important; position: fixed; inset: 0; height: var(--vvh, 100dvh); overscroll-behavior: none; }
+    body.game-mode #prize-info, body.game-mode #token-balance, body.game-mode #ast-facts, body.game-mode #share-score { display: none !important; }
     body.game-mode #game-container {
-      height: 92vh !important;
-      max-height: none !important;
-      margin: 0 auto !important;
-      border: 4px solid #32FF9A;
-      box-shadow: 0 0 40px #32FF9A, 0 0 80px #F7931A;
+      position: fixed !important;
+      left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px);
+      top: env(safe-area-inset-top, 0px);
+      height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+      width: auto !important; max-width: none !important; min-height: 0 !important; max-height: none !important;
+      margin: 0 !important; border: 0; box-shadow: none; animation: none; z-index: 20;
+    }
+    body.game-mode #score-display {
+      position: fixed; z-index: 25; top: calc(env(safe-area-inset-top, 0px) + 6px); left: 0; right: 0; margin: 0;
+      font-size: 15px; pointer-events: none; background: transparent;
+    }
+    body.game-mode #results-overlay { position: fixed !important; inset: 0; z-index: 40; overflow-y: auto; padding-top: 4%; }
+    /* v5.1: compact pre-game header so Start + the canvas fit on a phone without scrolling */
+    @media (max-width: 600px) {
+      .buy-buttons button { padding: 4px 7px; font-size: 12px; margin: 2px 1px; }
+      h1 { font-size: 22px !important; margin: 4px 0 !important; }
+      #prize-info, #score-display { font-size: 13px !important; margin: 3px auto !important; }
+      #connect-wallet, #start-game { padding: 7px 14px; margin: 2px 4px; }
+      #identity-bar { font-size: 0.8rem !important; }
+      #game-container { min-height: 0 !important; }
     }
   </style>
 </head>
@@ -104,10 +123,10 @@
       <span id="usdc-balance" style="font-variant-numeric:tabular-nums;">USDC: 0</span>
     </div>
     <div class="buy-buttons">
-      <button id="buy-1">1 Life: $0.10</button>
-      <button id="buy-10">10 Lives: $0.90</button>
-      <button id="buy-25">25 Lives: $2.25</button>
-      <button id="buy-50">50 Lives: $4.50</button>
+      <button id="buy-1">1 Life</button>
+      <button id="buy-10">10 Lives</button>
+      <button id="buy-25">25 Lives</button>
+      <button id="buy-50">50 Lives</button>
     </div>
   </div>
 
@@ -119,7 +138,7 @@
   </div>
 
   <div id="fee-info" style="display:none;">Production Build</div>
-  <div id="prize-info">Monthly Prizes: 60% of buys to top 10 USDC + top 20 AST. Pot: <span id="pot-balance">0</span> USDC</div>
+  <div id="prize-info">Monthly Prizes: 60% of buys to top 10 USDC + top 20 AST. Pot: <span id="pot-balance">0</span> USDC<span id="life-price-note"></span></div>
   <div id="score-display">Score: 0 | Missed: 0/3</div>
   <div id="token-balance" style="display:none">Tokens: 0 AST</div>
 
@@ -134,7 +153,8 @@
       <div style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
         <button id="play-again-btn" style="font-size:18px; padding:14px 40px; width: 240px; border-color:#F7931A; background: linear-gradient(45deg, #0A0F2E, #111);">Play Again (1 Life)</button>
         <button id="return-home-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: #111; border: 2px solid #555;">← Return to Home</button>
-        <button id="share-base-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: linear-gradient(45deg, #0A0F2E, #111); border: 2px solid #32FF9A; color:#32FF9A;">🚀 Share on Base</button>
+        <button id="share-base-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: linear-gradient(45deg, #0A0F2E, #111); border: 2px solid #32FF9A; color:#32FF9A;">🚀 Share Score</button>
+        <div style="display:flex; gap:8px;"><button id="share-fc-btn" style="font-size:13px; padding:8px 14px; background:#111; border:1px solid #8a63d2; color:#c9b3ff;">Farcaster</button><a id="share-x-btn" href="https://x.com/intent/post" target="_blank" rel="noopener noreferrer" role="button" style="display:inline-block; font-size:13px; padding:8px 14px; background:#111; border:1px solid #888; color:#eee; border-radius:6px; text-decoration:none; font-family:inherit;">Post on X</a></div>
       </div>
     </div>
   </div>
@@ -192,7 +212,7 @@
     // against 0xEFd9: reads still work, but score submits / purchases / free lives are disabled because the
     // v1 board cannot record scores and its USDC can't be withdrawn (see ISSUES.md).
     const ECONOMY = {
-      LEADERBOARD_V2: "",
+      LEADERBOARD_V2: "0xCcF3b3678f00f5AD8036897Cf17D0b5de67EfEca",
       SCORE_API: "/api/score",
       SESSION_API: "/api/session",
       LEGACY_LEADERBOARD: "0xEFd9a0865306244d4F5227F0eBA2679Dd6d47E6A",
@@ -231,8 +251,12 @@
       'function claimDailyLives()',
       'function packPrice(uint256 lives) view returns (uint256)',
       'function nextDailyClaimAt(address player) view returns (uint256)',
+      'function dailyCooldown() view returns (uint256)',
+      'function dailyLives() view returns (uint256)',
       'function prizePot() view returns (uint256)',
       'function getTopScores(uint256 count) view returns (tuple(address player, uint256 score, string playerName)[])',
+      'function gamesStarted(address) view returns (uint256)',
+      'function games(address, uint256) view returns (uint64 startedAt, bool submitted)',
       'function playerLives(address) view returns (uint256)',
       'function playerHighScore(address) view returns (uint256)',
       'function allTimeHigh() view returns (uint256)',
@@ -319,28 +343,132 @@
       return receipt;
     }
 
+    // In-page dialogs. window.confirm()/alert() are silently unsupported in some in-app WebViews (the Base app:
+    // confirm() returns false immediately), which made "Start Game" do nothing at all.
+    function uiDialog(text, withCancel) {
+      console.log('[ui]', text);
+      return new Promise((resolve) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'ui-dialog';
+        wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000000;';
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#111;color:#fff;border:2px solid #32FF9A;border-radius:14px;padding:20px;max-width:88vw;white-space:pre-line;text-align:center;font-size:16px;';
+        const p = document.createElement('div'); p.textContent = text; p.style.marginBottom = '16px'; box.appendChild(p);
+        const done = (v) => { wrap.remove(); resolve(v); };
+        const mk = (label, v, bg) => { const b = document.createElement('button'); b.textContent = label; b.className = 'ui-dialog-' + (v ? 'ok' : 'cancel');
+          b.style.cssText = `margin:0 8px;padding:10px 18px;border-radius:10px;border:0;font-weight:bold;background:${bg};color:#000;`; b.onclick = () => done(v); box.appendChild(b); };
+        if (withCancel) mk('Cancel', false, '#888');
+        mk('OK', true, '#32FF9A');
+        wrap.appendChild(box); document.body.appendChild(wrap);
+      });
+    }
+    const uiAlert = (text) => { uiDialog(String(text), false); };
+    const uiConfirm = (text) => uiDialog(String(text), true);
+
+    // ---- Wallet calls that work for smart wallets (Base app / Coinbase Smart Wallet, EIP-7702, 4337) ----
+    // Prefer EIP-5792 wallet_sendCalls (+ wallet_getCallsStatus); fall back to eth_sendTransaction. Never trust the
+    // returned id/hash or a receipt: success = the expected on-chain state change, read back from the chain.
+    let walletEip1193 = null;
+    let sendCallsSupported = null;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const isUnsupportedErr = (e) => e?.code === 4200 || e?.code === -32601 || /not supported|unsupported|does not exist|not implemented|unknown method/i.test(String(e?.message || ''));
+    async function supportsSendCalls() {
+      if (sendCallsSupported !== null) return sendCallsSupported;
+      try {
+        const caps = await withTimeout(walletEip1193.request({ method: 'wallet_getCapabilities', params: [userAddress, ['0x2105']] }), 5000, 'wallet_getCapabilities');
+        sendCallsSupported = !!caps;
+      } catch (e) { sendCallsSupported = false; }
+      console.log('[tx] wallet_sendCalls supported:', sendCallsSupported);
+      return sendCallsSupported;
+    }
+    async function callsFailed(sent) {
+      try {
+        if (sent.kind === 'calls') {
+          const st = await withTimeout(walletEip1193.request({ method: 'wallet_getCallsStatus', params: [sent.id] }), 5000, 'getCallsStatus');
+          const code = Number(st?.status);
+          if ((code >= 400 && code < 700) || /fail|revert/i.test(String(st?.status))) return true;
+          if ((st?.receipts || []).some((r) => r.status === '0x0' || r.status === 0)) return true;
+        } else if (/^0x[0-9a-fA-F]{64}$/.test(String(sent.id))) {
+          const rc = await provider.getTransactionReceipt(sent.id).catch(() => null);
+          if (rc && rc.status === 0) return true; // a real tx hash that reverted
+        }
+      } catch (e) { /* status unknown; keep reading the chain */ }
+      return false;
+    }
+    async function pollConfirm(check, sent, label, timeoutMs = 180000) {
+      const t0 = Date.now();
+      while (Date.now() - t0 < timeoutMs) {
+        try { if (await check()) { console.log('[tx]', label, 'confirmed on-chain'); return; } } catch (e) { /* RPC hiccup */ }
+        if (sent && await callsFailed(sent)) throw new Error(`${label} failed on-chain (wallet reports failure). Nothing changed.`);
+        await sleep(2000);
+      }
+      throw new Error(`${label}: not confirmed after ${Math.round(timeoutMs / 60000)} min. Check your wallet activity, then refresh this page before retrying.`);
+    }
+    // calls: [{ to, data, check?: async () => bool }]; finalCheck confirms the whole action.
+    async function sendAndConfirm(calls, finalCheck, label) {
+      if (!walletEip1193 || !userAddress) throw new Error('Connect your wallet first');
+      if (await supportsSendCalls()) {
+        try {
+          console.log('[tx]', label, 'via wallet_sendCalls', calls.length, 'call(s)');
+          const r = await withTimeout(walletEip1193.request({ method: 'wallet_sendCalls', params: [{ version: '2.0.0', chainId: '0x2105', from: userAddress,
+            atomicRequired: false, calls: calls.map((c) => ({ to: c.to, data: c.data, value: '0x0' })) }] }), 300000, label + ' (wallet approval)');
+          const sent = { kind: 'calls', id: typeof r === 'string' ? r : r?.id };
+          console.log('[tx]', label, 'calls id', sent.id);
+          await pollConfirm(finalCheck, sent, label);
+          return sent;
+        } catch (e) {
+          if (!isUnsupportedErr(e)) throw e;
+          console.warn('[tx] wallet_sendCalls unsupported, falling back', e?.message);
+          sendCallsSupported = false;
+        }
+      }
+      let sent = null;
+      for (let i = 0; i < calls.length; i++) {
+        const c = calls[i];
+        console.log('[tx]', label, `via eth_sendTransaction (${i + 1}/${calls.length})`);
+        const id = await withTimeout(walletEip1193.request({ method: 'eth_sendTransaction', params: [{ from: userAddress, to: c.to, data: c.data, value: '0x0' }] }), 300000, label + ' (wallet approval)');
+        sent = { kind: 'tx', id };
+        console.log('[tx]', label, 'returned id', id, '(may be a smart-account operation id)');
+        if (i < calls.length - 1) await pollConfirm(c.check || (async () => true), sent, label + ` step ${i + 1}`);
+      }
+      await pollConfirm(finalCheck, sent, label);
+      return sent;
+    }
+    const lbIface = () => new ethers.Interface(lbAbi);
+    const lbRead = () => new ethers.Contract(leaderboardAddress, lbAbi, provider);
+
     // v5.0: Farcaster / Base mini-app SDK. ready() hides the client's splash screen; without it the
     // app can hang on the splash inside Farcaster/Base clients. Outside a mini-app host sdk stays null.
     let fcProvider = null;
+    // Every host call gets a timeout: in the Base app / Coinbase in-app browser window.ReactNativeWebView exists, so
+    // SDK messages are posted to a "host" that never answers. An un-timed await there hung Connect forever.
+    function withTimeout(p, ms, label) {
+      return Promise.race([Promise.resolve(p), new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' timed out after ' + ms + ' ms')), ms))]);
+    }
     async function initSdk() {
       const fc = window.farcasterMiniAppSdk;
-      if (!fc) { console.log('Mini-app SDK not loaded – browser wallet mode'); return; }
+      if (!fc) { console.log('[connect] mini-app SDK not loaded – browser wallet mode'); return; }
+      let inMiniApp = false;
+      try { inMiniApp = await withTimeout(fc.isInMiniApp(1500), 2000, 'isInMiniApp'); } catch (e) { console.warn('[connect]', e.message); }
+      window.__inMiniApp = !!inMiniApp;
+      if (!inMiniApp) { console.log('[connect] not inside a mini-app host – browser wallet mode'); return; }
+      console.log('[connect] mini-app host detected');
       try {
-        const inMiniApp = await fc.isInMiniApp().catch(() => false);
-        if (!inMiniApp) { console.log('Not inside a mini-app host – browser wallet mode'); return; }
-        const context = await fc.context.catch(() => null);
+        const context = await withTimeout(fc.context, 1500, 'sdk.context').catch(() => null);
         sdk = { actions: fc.actions, context: { user: context?.user ? { ...context.user, pfp_url: context.user.pfpUrl } : null } };
-        fcProvider = await fc.wallet.getEthereumProvider().catch(() => null);
+        fcProvider = await withTimeout(fc.wallet.getEthereumProvider(), 1500, 'getEthereumProvider').catch((e) => { console.warn('[connect]', e.message); return null; });
       } catch (e) {
-        console.warn('Mini-app SDK init failed', e);
+        console.warn('[connect] mini-app SDK init failed', e);
       } finally {
-        // Always dismiss the splash, even if context/wallet failed.
-        try { await fc.actions.ready(); } catch (e) { console.warn('sdk.actions.ready failed', e); }
+        // Dismiss the host splash. Fire-and-forget with a timeout; never block on it.
+        withTimeout(fc.actions.ready(), 3000, 'sdk.actions.ready').catch((e) => console.warn('[connect]', e.message));
       }
     }
     const sdkReady = initSdk();
 
     let gameplayActive = false;
+    let gameEnded = true;       // v5.9: gameOver/submit run once per game
+    let resultsLocked = false;  // v5.9: a confirmed result can't be overwritten
     const MAX_SHIELDS = 3;
     const MISSES_ALLOWED = 3;
     let lives = null; // v4.64: unknown until read from the Leaderboard contract
@@ -352,7 +480,35 @@
     let canShoot = true;
     let ship, asteroids, lazerGroup, keys, spaceKey;
     let stars = [];
+    // v5.4: starfield uniformly spread over the CURRENT world; count scales with area; per-star parallax speeds.
+    function buildStars(scene) {
+      const width = scene.scale.width, height = scene.scale.height;
+      stars.forEach(st => st.destroy()); stars = [];
+      if (!(width > 0 && height > 0)) return;
+      const density = Phaser.Math.Clamp(width * height / (800 * 500), 0.3, 3); // 220 stars at 800x500
+      const layers = [ { n: 120, speed: 0.5, alpha: 0.4, size: 1, color: 0xffffff },
+                       { n: 60,  speed: 1.1, alpha: 0.65, size: 1.6, color: 0x4488FF },
+                       { n: 40,  speed: 2.4, alpha: 0.95, size: 2.2, color: 0x32FF9A } ];
+      const sizeK = Math.max(0.6, baseScale);
+      layers.forEach(L => {
+        for (let i = 0, n = Math.round(L.n * density); i < n; i++) {
+          const star = scene.add.graphics({ x: Math.random() * width, y: Math.random() * height });
+          star.fillStyle(L.color, L.alpha);
+          star.fillCircle(0, 0, L.size * sizeK);
+          star.speedY = L.speed * (0.6 + Math.random() * 0.8);
+          star.setDepth(-0.5);
+          stars.push(star);
+        }
+      });
+      if (scene.bgRect) scene.bgRect.setDepth(-1);
+      scene._starW = width; scene._starH = height;
+    }
     let baseScale = 1.0;
+    // v5.3: clamp so a transiently tiny/zero canvas (iOS reports the parent size late) can never shrink sprites to a speck.
+    function computeBaseScale(w, h) {
+      const r = Math.min(w / 800, h / 500, 1.0);
+      return Math.max(0.5, Number.isFinite(r) ? r : 1);
+    }
     let personalHighScore = 0;
 
     // v4.64: results overlay reflects the real submission state:
@@ -367,6 +523,8 @@
     }
 
     function setResultsState(state, { txHash = null, astMinted = null, error = '' } = {}) {
+      if (resultsLocked && state !== 'confirmed') { console.warn('[results] ignored', state, 'after confirmed:', error); return; }
+      if (state === 'confirmed') resultsLocked = true;
       const astDiv = document.getElementById('results-ast');
       const txDiv = document.getElementById('results-tx');
       astDiv.replaceChildren();
@@ -380,7 +538,7 @@
         if (astMinted !== null) astDiv.append(line(astMinted > 0 ? `+${astMinted} AST minted` : 'No AST earned this round'));
         const btn = document.createElement('button');
         btn.id = 'add-ast-metamask';
-        btn.textContent = 'Add AST to MetaMask';
+        btn.textContent = 'Add AST to wallet';
         btn.style.cssText = 'margin-top:8px;padding:8px 16px;font-size:14px;background:#F7931A;color:#000;border:none;border-radius:8px;cursor:pointer;';
         btn.addEventListener('click', addASTToMetaMask);
         astDiv.append(btn);
@@ -415,30 +573,19 @@
       create() {
         const width = this.scale.width;
         const height = this.scale.height;
-        baseScale = Math.min(width / 800, height / 500, 1.0);
+        baseScale = computeBaseScale(width, height);
 
         // Force black background to cover any gaps
-        this.add.rectangle(0, 0, width, height, 0x000000).setOrigin(0);
+        this.bgRect = this.add.rectangle(0, 0, width, height, 0x000000).setOrigin(0);
 
         stars = [];
-        for (let layer = 0; layer < 3; layer++) {
-          const numStars = [120, 60, 40][layer];
-          const speed = [0.5, 1.1, 2.4][layer];
-          const alpha = [0.4, 0.65, 0.95][layer];
-          const size = [1, 1.6, 2.2][layer] * baseScale;
-          const color = [0xffffff, 0x4488FF, 0x32FF9A][layer];
-          for (let i = 0; i < numStars; i++) {
-            let star = this.add.graphics({ x: Math.random() * width, y: Math.random() * height });
-            star.fillStyle(color, alpha);
-            star.fillCircle(0, 0, size);
-            star.speedY = speed;
-            stars.push(star);
-          }
-        }
+        buildStars(this);
 
         // === IMPROVED SHIP (v4.62) ===
         ship = this.add.graphics({ x: width / 2, y: height * 0.82 });
-        const s = baseScale * 1.6;
+        // v5.3: geometry is drawn ONCE in fixed units (s=1); on-screen size comes from ship.setScale(shipScale())
+        // in placeShip, recomputed absolutely from the current canvas size (never compounding, never 0).
+        const s = 1;
 
         // Main body
         ship.fillStyle(0x0052FF, 1);
@@ -467,12 +614,12 @@
         ship.fillTriangle(-6 * s, 24 * s, 6 * s, 24 * s, 0, 32 * s);
 
         this.physics.add.existing(ship);
-        ship.body.setCollideWorldBounds(true);
+        ship.body.setCollideWorldBounds(false); // v5.6: x is clamped in code (bounds+offset body stopped it ~12px short of the right edge)
         ship.body.setAllowGravity(false);
         ship.body.immovable = true;
         ship.setDepth(5);
         this.add.existing(ship);
-        ship.body.setSize(36 * s, 48 * s);
+        placeShip(this, false);
 
         asteroids = this.physics.add.group();
         lazerGroup = this.physics.add.group();
@@ -484,11 +631,18 @@
         spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
         // Touch controls
+        // v5.5: RELATIVE drag. Absolute (ship.x = finger.x) made the ship jump to wherever a new touch began –
+        // re-touching near the middle snapped it back toward the center.
+        this._drag = null;
+        this.input.on('pointerdown', (pointer) => { this._drag = { id: pointer.id, px: pointer.x, sx: ship.x }; });
+        const endDrag = (pointer) => { if (this._drag && this._drag.id === pointer.id) this._drag = null; };
+        this.input.on('pointerup', endDrag); this.input.on('pointerupoutside', endDrag);
         this.input.on('pointermove', (pointer) => {
-          if (gameplayActive && pointer.isDown) {
-            ship.x = Phaser.Math.Clamp(pointer.x, 30, this.scale.width - 30);
-            if (ship.body) ship.body.x = ship.x;
-          }
+          if (!gameplayActive || !pointer.isDown) return;
+          if (!this._drag || this._drag.id !== pointer.id) this._drag = { id: pointer.id, px: pointer.x, sx: ship.x };
+          const half = shipHalfWidth(this);
+          ship.x = Phaser.Math.Clamp(this._drag.sx + (pointer.x - this._drag.px), half, this.scale.width - half);
+          if (ship.body) ship.body.reset(ship.x, ship.y);
         });
       }
 
@@ -499,7 +653,7 @@
 
         stars.forEach(star => {
           star.y += star.speedY;
-          if (star.y > height) star.y = 0;
+          if (star.y > height + 4) { star.y = -Math.random() * 20; star.x = Math.random() * width; }
         });
 
         const moveSpeed = 5 / baseScale;
@@ -511,8 +665,8 @@
           else if (keys.right.isDown) ship.x += moveSpeed;
         }
 
-        ship.x = Phaser.Math.Clamp(ship.x, 25, width - 25);
-        if (ship.body) ship.body.x = ship.x;
+        ship.x = Phaser.Math.Clamp(ship.x, shipHalfWidth(this), width - shipHalfWidth(this));
+        if (ship.body) ship.body.reset(ship.x, ship.y);
 
         if (spaceKey.isDown && canShoot) {
           this.shootLaser();
@@ -521,7 +675,7 @@
         }
 
         asteroids.getChildren().forEach(asteroid => {
-          asteroid.setPosition(asteroid.body.x, asteroid.body.y);
+          // v5.6: removed setPosition(body.x, body.y) – it copied the hit-box corner onto the sprite every frame
           asteroid.rotation += 0.05;
         });
 
@@ -535,56 +689,60 @@
             asteroid.destroy();
             misses++;
             updateScoreDisplay();
-            if (misses >= MISSES_ALLOWED) this.gameOver();
+            if (misses >= MISSES_ALLOWED && !gameEnded) this.gameOver();
           }
         });
       }
 
+      // v5.6: lasers/asteroids are scaled ONCE (they were drawn at k AND setScale(k) → k², and their hit boxes
+      // hung off to the bottom-right of the sprite, so edge asteroids were unhittable). Hit boxes are centered.
       shootLaser() {
-        const laserScale = baseScale;
-        const laser = this.add.graphics({ x: ship.x, y: ship.y - 22 * laserScale });
+        const k = baseScale;
+        // Arcade bodies on Graphics misbehave with negative offsets, so draw from (0,0) and place the
+        // object's top-left so the laser's CENTER is exactly ship.x.
+        const hw = LASER_HALF_W * k;
+        const laser = this.add.graphics({ x: ship.x - hw, y: ship.y - 34 * k });
         laser.fillStyle(0x32FF9A, 1);
-        laser.fillRect(-2.5 * laserScale, -12 * laserScale, 5 * laserScale, 26 * laserScale);
+        laser.fillRect(0, 0, hw * 2, 26 * k);
         laser.fillStyle(0xF7931A, 0.9);
-        laser.fillRect(-1.2 * laserScale, -8 * laserScale, 2.4 * laserScale, 18 * laserScale);
-        laser.setScale(laserScale);
+        laser.fillRect(hw - 1.2 * k, 4 * k, 2.4 * k, 18 * k);
         this.physics.add.existing(laser);
         lazerGroup.add(laser);
-        laser.body.setVelocityY(-500 * laserScale);
         laser.body.setAllowGravity(false);
-        laser.body.setSize(4 * laserScale, 20 * laserScale);
+        laser.body.setSize(hw * 2, 26 * k, false);
+        laser.body.setVelocityY(-500 * k);
       }
 
       spawnAsteroid() {
-        const width = this.scale.width;
-        const astScale = baseScale;
-        const x = Phaser.Math.Between(20 * astScale, width - 20 * astScale);
-        const asteroid = this.add.graphics({ x: x, y: -45 * astScale });
-        
+        const k = baseScale;
+        const [minX, maxX] = asteroidSpawnRange(this);
+        const x = Phaser.Math.FloatBetween(minX, maxX);
+        const R = 20 * k; // drawn around (0,0) so rotation spins in place; object x == center x
+        const asteroid = this.add.graphics({ x: x, y: -45 * k });
         asteroid.fillStyle(0x3A3F5A, 1);
         asteroid.lineStyle(2.5, 0xF7931A, 0.9);
-        asteroid.fillCircle(0, 0, 20 * astScale);
-        asteroid.strokeCircle(0, 0, 20 * astScale);
-        
+        asteroid.fillCircle(0, 0, R);
+        asteroid.strokeCircle(0, 0, R);
         asteroid.fillStyle(0x1F2438, 1);
-        asteroid.fillCircle(-5 * astScale, -7 * astScale, 4 * astScale);
-        asteroid.fillCircle(6 * astScale, 5 * astScale, 5 * astScale);
+        asteroid.fillCircle(-5 * k, -7 * k, 4 * k);
+        asteroid.fillCircle(6 * k, 5 * k, 5 * k);
         if (Math.random() > 0.55) {
           asteroid.fillStyle(0x32FF9A, 0.85);
-          asteroid.fillCircle(4 * astScale, -4 * astScale, 2 * astScale);
+          asteroid.fillCircle(4 * k, -4 * k, 2 * k);
         }
-        
-        asteroid.setScale(astScale);
         this.physics.add.existing(asteroid);
         asteroids.add(asteroid);
-        asteroid.body.setSize(38 * astScale, 38 * astScale);
+        asteroid.body.setSize(AST_R * 2 * k, AST_R * 2 * k, false);
+        asteroid.body.setOffset(-AST_R * k, -AST_R * k); // centered hit box
         asteroid.body.setAllowGravity(false);
+        asteroid.body.setVelocityX(0);                  // straight down only – no sideways drift out of range
         const baseSpeed = 120;
         const currentSpeed = baseSpeed + (speedMultiplier * 45);
-        asteroid.body.setVelocityY(currentSpeed * astScale);
+        asteroid.body.setVelocityY(currentSpeed * k);
       }
 
       hitShip(shipObj, asteroid) {
+        if (!gameplayActive || gameEnded) return; // physics keeps running after game over
         asteroid.destroy();
         shields = Math.max(0, shields - 1);
         updateTopBar().catch(console.error);
@@ -597,6 +755,7 @@
       }
 
       destroyAsteroid(laser, asteroid) {
+        if (!gameplayActive || gameEnded) return;
         if (laser) laser.destroy();
         if (asteroid) asteroid.destroy();
         score += 12;
@@ -614,6 +773,8 @@
 
       // === v4.61: gameOver() correctly inside class ===
       gameOver() {
+        if (gameEnded) { console.warn('[gameOver] ignored duplicate call'); return; }
+        gameEnded = true;
         gameplayActive = false;
         if (this.shootTimer) this.shootTimer.paused = true;
         if (this.spawnTimer) this.spawnTimer.paused = true;
@@ -634,6 +795,8 @@
                 setResultsState('confirmed', result);
                 await Promise.all([updateLeaderboard(), getTokenBalance(), updateAstFacts()]);
                 checkNewHighScoreAndShowBanner(finalScore);
+              } else if (result.status === 'skipped' || resultsLocked) {
+                console.warn('[submit] skipped:', result.error);
               } else {
                 setResultsState('failed', result);
                 showToast(`❌ Score not saved on-chain\n${result.error}`, true);
@@ -650,7 +813,7 @@
         if (returnBtn) {
           returnBtn.onclick = () => {
             hideResultsOverlay();
-            document.body.classList.remove('game-mode');
+            exitPlayMode();
             if (document.fullscreenElement) document.exitFullscreen();
             document.getElementById('start-game').disabled = false;
           };
@@ -668,37 +831,164 @@
       scene: GameScene
     });
 
-    let lastResizeWidth = 0;
-    game.scale.on('resize', function(gameSize) {
-      const width = gameSize.width;
-      if (width === lastResizeWidth) return;
-      lastResizeWidth = width;
-      const height = gameSize.height;
+    // v5.1: keep the whole world inside the canvas on every resize (width OR height), ship pinned near the bottom.
+    // v5.6: ship may sit nearly flush with the edge (visual half width 26*S, minus a few px).
+    function shipHalfWidth(scene) { return Math.max(8, 26 * baseScale * 1.6 - 4); }
+    const AST_R = 19, LASER_HALF_W = 2.5; // unit (unscaled) hit radii
+    function asteroidCenterX(a) { return a.x; }
+    function shipXRange(scene) { const h = shipHalfWidth(scene); return [h, scene.scale.width - h]; }
+    // Asteroid centers are spawned only where a laser from the ship (laser x == ship.x) can overlap them,
+    // with a safety margin so the overlap is never a 1px graze.
+    function asteroidSpawnRange(scene) {
+      const [a, b] = shipXRange(scene);
+      const reach = (AST_R + LASER_HALF_W) * baseScale * 0.6;
+      return [Math.max(0, a - reach), Math.min(scene.scale.width, b + reach)];
+    }
+    function placeShip(scene, keepX) {
+      if (!scene || !ship) return;
+      const width = scene.scale.width, height = scene.scale.height;
+      baseScale = computeBaseScale(width, height);
+      const s = baseScale * 1.6;
+      ship.setScale(s);
+      if (ship.body) { ship.body.setSize(36, 48); ship.body.setOffset(-18, -24); /* unscaled units: Arcade multiplies by ship.scale */ }
+      ship.setDepth(10);
+      const halfW = shipHalfWidth(scene);
+      // v5.5: keep x (proportionally if the width changed); only recenter when explicitly asked (new game).
+      const prevW = scene._shipW || width;
+      const keep = keepX !== false || gameplayActive;
+      const x = Phaser.Math.Clamp(keep ? ship.x * (width / prevW) : width / 2, halfW, width - halfW);
+      scene._shipW = width;
+      const y = height - 34 * s - Math.max(10, height * 0.03); // thrusters end at +34*s below the origin
+      ship.x = x; ship.y = y;
+      if (ship.body) { ship.body.reset(x, y); }
+      scene.physics.world.setBounds(0, 0, width, height);
+      if (scene.bgRect) scene.bgRect.setSize(width, height);
+      // v5.4: stars were spawned once at boot (tiny iOS canvas) → all bunched in a band. Rebuild for the real world size.
+      if (!scene._starW || Math.abs(width - scene._starW) / scene._starW > 0.1 || Math.abs(height - scene._starH) / scene._starH > 0.1) buildStars(scene);
+    }
+    game.scale.on('resize', function() {
       const sceneInstance = game.scene.scenes[0];
-      if (sceneInstance && ship) {
-        baseScale = Math.min(width / 800, height / 500, 1.0);
-        const clampedX = Phaser.Math.Clamp(width / 2, 20 * baseScale * 1.5, width - 20 * baseScale * 1.5);
-        ship.x = clampedX;
-        ship.y = height * 0.85;
-        ship.body.x = clampedX;
-        ship.body.y = height * 0.85;
-      }
+      if (sceneInstance && sceneInstance.sys.isActive()) placeShip(sceneInstance, true);
     });
 
-    function optimizeGameSize() {
-      const container = document.getElementById('game-container');
-      const viewportH = window.innerHeight;
-      let fixedTop = 0;
-      const topElements = ['#identity-bar', 'h1', '#connect-wallet', '#fee-info', '#prize-info', '#score-display'];
-      topElements.forEach(sel => {
-        const el = document.querySelector(sel);
-        if (el) fixedTop += el.offsetHeight + 12;
-      });
-      let targetH = Math.max(380, Math.min(520, viewportH - fixedTop - 180));
-      container.style.height = `${targetH}px`;
-      if (game && game.scale) game.scale.refresh();
+    // v5.2: measure the *real* visible area (visualViewport), never vh/innerHeight alone – in-app browsers
+    // (Coinbase/Base app) overlay their own top bar and bottom toolbar.
+    function vv() {
+      const v = window.visualViewport;
+      return v ? { h: v.height, top: v.offsetTop } : { h: window.innerHeight, top: 0 };
     }
+    function visibleHeight() { return Math.round(vv().h); }
+    let _safeProbe;
+    function safeInsets() {
+      if (!_safeProbe) {
+        _safeProbe = document.createElement('div');
+        _safeProbe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
+        document.body.appendChild(_safeProbe);
+      }
+      const cs = getComputedStyle(_safeProbe);
+      return { top: parseFloat(cs.paddingTop) || 0, bottom: parseFloat(cs.paddingBottom) || 0 };
+    }
+    function setViewportVar() { document.documentElement.style.setProperty('--vvh', visibleHeight() + 'px'); }
 
+    let _lastSize = '';
+    function optimizeGameSize() {
+      setViewportVar();
+      const container = document.getElementById('game-container');
+      if (!container) return;
+      const v = vv(), safe = safeInsets();
+      let key;
+      if (document.body.classList.contains('game-mode')) {
+        // Pin to the visible viewport (offsetTop handles a toolbar-shifted visual viewport).
+        const top = Math.round(v.top + safe.top), h = Math.floor(v.h - safe.top - safe.bottom);
+        container.style.setProperty('top', top + 'px', 'important');
+        container.style.setProperty('height', h + 'px', 'important');
+        key = 'g' + top + 'x' + h;
+      } else {
+        container.style.removeProperty('top');
+        // Pre-game: everything from the container's top to the bottom of the *visible* area, measured live
+        // (connected state adds lines to the header, so this is re-run whenever the header resizes).
+        const rect = container.getBoundingClientRect();
+        const topInVisible = rect.top - v.top;
+        const avail = Math.floor(v.h - topInVisible - safe.bottom - 10);
+        const h = Math.max(140, Math.min(520, avail));
+        container.style.setProperty('min-height', '0px', 'important');
+        container.style.setProperty('box-sizing', 'border-box', 'important');
+        container.style.setProperty('height', h + 'px', 'important');
+        // Self-correct with the real rendered box (borders, rounding, anything we didn't account for).
+        const over = Math.ceil(container.getBoundingClientRect().bottom - (v.top + v.h - safe.bottom - 10));
+        if (over > 0) container.style.setProperty('height', Math.max(140, h - over) + 'px', 'important');
+        key = 'p' + h + 'w' + Math.round(rect.width);
+      }
+      _lastSize = key;
+      if (game && game.scale) {
+        game.scale.refresh();
+        // v5.4: refresh() alone can miss a parent that changed while Phaser was booting (iOS) → force the size.
+        const cw = container.clientWidth, ch = container.clientHeight;
+        if (cw > 0 && ch > 0 && (Math.round(game.scale.width) !== cw || Math.round(game.scale.height) !== ch)) game.scale.resize(cw, ch);
+      }
+      updateDebugOverlay();
+    }
+    // ?debug=1 → on-screen numbers Kevin can screenshot.
+    const DEBUG_LAYOUT = /[?&]debug=1\b/.test(location.search);
+    let _dbg;
+    function updateDebugOverlay() {
+      if (!DEBUG_LAYOUT) return;
+      if (!_dbg) {
+        _dbg = document.createElement('div');
+        _dbg.id = 'layout-debug';
+        _dbg.style.cssText = 'position:fixed;left:4px;top:calc(env(safe-area-inset-top,0px) + 34px);z-index:9999;background:rgba(0,0,0,.6);color:#0f0;font:11px/1.3 monospace;padding:4px 6px;border:1px solid #0f0;pointer-events:none;white-space:pre;text-align:left';
+        document.body.appendChild(_dbg);
+      }
+      const v = vv(), safe = safeInsets();
+      const cv = document.querySelector('#game-container canvas');
+      const r = cv ? cv.getBoundingClientRect() : null;
+      let shipLine = 'ship: –';
+      try {
+        const sc = game.scene.scenes[0];
+        if (ship && r) {
+          const k = r.height / sc.scale.height, s = baseScale * 1.6;
+          shipLine = `ship y=${Math.round(ship.y)} screenBottom=${Math.round(r.top + (ship.y + 34 * s) * k)} world=${Math.round(sc.scale.width)}x${Math.round(sc.scale.height)}`;
+        }
+      } catch (e) {}
+      const visBottom = Math.round(v.top + v.h);
+      _dbg.textContent = `innerH=${innerHeight} vv.h=${Math.round(v.h)} vv.top=${Math.round(v.top)} visBottom=${visBottom}\n` +
+        `safe t/b=${safe.top}/${safe.bottom} mode=${document.body.classList.contains('game-mode') ? 'play' : 'pre'} scrollY=${Math.round(scrollY)}\n` +
+        (r ? `canvas top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} w=${Math.round(r.width)} ${r.bottom <= visBottom + 1 ? 'OK' : 'OFF-SCREEN'}` : 'canvas: –') + '\n' + shipLine;
+    }
+    if (DEBUG_LAYOUT) setInterval(updateDebugOverlay, 500);
+    // Re-measure whenever anything above the canvas changes size (connect, token line, balances…).
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(() => optimizeGameSize());
+      document.addEventListener('DOMContentLoaded', () => {
+        let el = document.getElementById('game-container');
+        while (el && el !== document.body) {
+          let sib = el.previousElementSibling;
+          while (sib) { ro.observe(sib); sib = sib.previousElementSibling; }
+          el = el.parentElement;
+        }
+      });
+    }
+    if (window.visualViewport) window.visualViewport.addEventListener('scroll', optimizeGameSize);
+    // Safety net: if anything above the canvas moved (e.g. the connected "Tokens" line appears), re-fit.
+    let _lastTop = null;
+    setInterval(() => {
+      const c = document.getElementById('game-container'); if (!c) return;
+      const t = Math.round(c.getBoundingClientRect().top) + '|' + visibleHeight();
+      if (t !== _lastTop) { _lastTop = t; optimizeGameSize(); }
+    }, 400);
+    function enterPlayMode() {
+      window.scrollTo(0, 0);
+      document.body.classList.add('game-mode');
+      optimizeGameSize();
+      // iOS sometimes reports the final viewport a frame later.
+      setTimeout(optimizeGameSize, 60); setTimeout(optimizeGameSize, 300);
+    }
+    function exitPlayMode() {
+      document.body.classList.remove('game-mode');
+      optimizeGameSize(); setTimeout(optimizeGameSize, 60);
+    }
+    document.addEventListener('touchmove', (e) => { if (document.body.classList.contains('game-mode') && !e.target.closest('#results-overlay')) e.preventDefault(); }, { passive: false });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', optimizeGameSize);
     window.addEventListener('resize', optimizeGameSize);
     window.addEventListener('orientationchange', () => setTimeout(optimizeGameSize, 250));
 
@@ -736,20 +1026,29 @@
       button.innerText = 'Connecting...';
       button.disabled = true;
       try {
-        await sdkReady;
-        const eip1193 = fcProvider || window.ethereum;
-        if (eip1193) {
-          await eip1193.request({ method: "eth_requestAccounts" });
-          const net = await eip1193.request({ method: "eth_chainId" });
-          if (Number(net) !== 8453) {
-            await eip1193.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
-          }
-          provider = new ethers.BrowserProvider(eip1193);
-          signer = await provider.getSigner();
-          userAddress = await signer.getAddress();
-        } else {
-          throw new Error('No wallet detected');
+        console.log('[connect] start');
+        await withTimeout(sdkReady, 4000, 'mini-app SDK init').catch((e) => console.warn('[connect]', e.message));
+        // Prefer the injected wallet (Base app / Coinbase / MetaMask); the mini-app provider is the fallback.
+        const eip1193 = window.ethereum || fcProvider;
+        console.log('[connect] provider:', window.ethereum ? 'window.ethereum' : fcProvider ? 'mini-app SDK' : 'none');
+        if (!eip1193) throw new Error('No wallet found. Open this page in the Base app browser or a wallet browser.');
+        button.innerText = 'Approve in wallet...';
+        const accounts = await withTimeout(eip1193.request({ method: "eth_requestAccounts" }), 120000, 'Wallet connection request');
+        console.log('[connect] accounts', accounts);
+        if (!accounts || !accounts.length) throw new Error('Wallet returned no account');
+        const net = await withTimeout(eip1193.request({ method: "eth_chainId" }), 10000, 'eth_chainId');
+        console.log('[connect] chainId', net);
+        if (Number(net) !== 8453) {
+          button.innerText = 'Switch to Base in wallet...';
+          await withTimeout(eip1193.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }), 60000, 'Switch to Base');
         }
+        // Static network: skip ethers' network auto-detection (another place that can stall).
+        walletEip1193 = eip1193; sendCallsSupported = null;
+        provider = new ethers.BrowserProvider(eip1193, { chainId: 8453, name: 'base' }, { staticNetwork: true });
+        userAddress = ethers.getAddress(accounts[0]);
+        signer = await withTimeout(provider.getSigner(userAddress), 10000, 'getSigner');
+        console.log('[connect] connected', userAddress);
+        loadPackPrices().catch(() => {});
 
         let displayName = userAddress.slice(0,6) + '...' + userAddress.slice(-4);
         let avatarUrl = '';
@@ -791,38 +1090,50 @@
         await refreshDailyFromChain();
         updateDailyClaim();
       } catch (err) {
-        console.error('Connect error:', err.message);
+        console.error('[connect] error:', err);
+        const msg = err?.code === 4001 ? 'Request rejected in wallet' : (err?.shortMessage || err?.message || String(err));
         button.innerText = prevText;
         button.disabled = false;
+        uiAlert('Could not connect: ' + msg);
       } finally {
         isConnecting = false;
       }
     });
 
 let startButton = document.getElementById("start-game");
+let freeClaimNeeded = false;
+async function dailyClaimReady() {
+  try {
+    const next = BigInt(await lbRead().nextDailyClaimAt(userAddress));
+    const blk = await provider.getBlock('latest');
+    return next <= BigInt(blk.timestamp);
+  } catch (e) { console.warn('[start] daily check failed', e?.message || e); return false; }
+}
 startButton.addEventListener("click", async () => {
-  if (!userAddress) return alert("Connect wallet first");
+  if (!userAddress) return uiAlert("Connect wallet first");
+  freeClaimNeeded = false;
 
   // Check lives first
   if (contractsConfigured && provider && userAddress) {
     try {
       const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
       const onChainLives = Number(await c.playerLives(userAddress));
-      if (onChainLives <= 0) {
-        return alert("You have 0 lives! Buy lives or claim daily/task life first.");
-      }
       lives = onChainLives;
+      if (onChainLives <= 0) {
+        // v5.7 free play: claim the free life and start in ONE wallet confirmation.
+        freeClaimNeeded = useV2 && (await dailyClaimReady());
+        if (!freeClaimNeeded) {
+          let when = '';
+          try { const next = Number(await c.nextDailyClaimAt(userAddress)); if (next) when = ' Next free life: ' + new Date(next * 1000).toLocaleString(); } catch (e) {}
+          return uiAlert("You have 0 lives." + when);
+        }
+      }
     } catch (e) {
       console.error("Lives check failed", e);
     }
   }
 
-  if (lives !== null && lives <= 0) return alert("No lives left! Buy more or complete tasks.");
-
-  if (!confirm(`Spend 1 life to start?\nLives remaining: ${lives === null ? 'unknown' : lives}`)) {
-    startButton.disabled = false;
-    return;
-  }
+  if (lives !== null && lives <= 0 && !freeClaimNeeded) return uiAlert("No lives left!");
 
   startButton.disabled = true;
   const playerName = cleanPlayerName(sdk?.context?.user?.username || document.getElementById('whoami').textContent, "Guest");
@@ -832,9 +1143,27 @@ startButton.addEventListener("click", async () => {
       const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
       startButton.innerText = 'Starting… confirm in wallet';
       currentGame = null;
-      const tx = useV2 ? await contract.startGame() : await contract.startGame(playerName);
-      const startReceipt = await waitForSuccess(tx);
-      if (useV2) currentGame = await openGameSession(contract, startReceipt);
+      if (useV2) {
+        const before = BigInt(await lbRead().gamesStarted(userAddress));
+        console.log('[start] gamesStarted before', before.toString());
+        const startCall = { to: leaderboardAddress, data: lbIface().encodeFunctionData('startGame', []) };
+        const calls = [];
+        if (freeClaimNeeded) {
+          // claim + start in one wallet_sendCalls batch (fallback: two txs, the first confirmed by its life landing)
+          const livesBefore = BigInt(await lbRead().playerLives(userAddress));
+          calls.push({ to: leaderboardAddress, data: lbIface().encodeFunctionData('claimDailyLives', []),
+            check: async () => BigInt(await lbRead().playerLives(userAddress)) > livesBefore });
+          console.log('[start] 0 lives → batching claimDailyLives + startGame');
+        }
+        calls.push(startCall);
+        await sendAndConfirm(calls, async () => BigInt(await lbRead().gamesStarted(userAddress)) > before, freeClaimNeeded ? 'Claim free life + start' : 'Start game');
+        const gameId = BigInt(await lbRead().gamesStarted(userAddress));
+        console.log('[start] game id', gameId.toString());
+        startButton.innerText = 'Opening score session…';
+        currentGame = await openGameSession(gameId);
+      } else {
+        await waitForSuccess(await contract.startGame(playerName));
+      }
       startButton.innerText = 'Start Game';
 
       const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
@@ -844,9 +1173,8 @@ startButton.addEventListener("click", async () => {
     }
 
     // Takeover
-    document.body.classList.add('game-mode');
-    const container = document.getElementById('game-container');
-    try { container.style.height = '92vh'; } catch(e){}
+    enterPlayMode();
+    placeShip(game.scene.scenes[0], false);
 
     const sceneInstance = game.scene.scenes[0];
     setTimeout(() => {
@@ -861,6 +1189,7 @@ startButton.addEventListener("click", async () => {
         countdownText.setText("GO!");
         sceneInstance.time.delayedCall(600, () => {
           countdownText.destroy();
+          gameEnded = false; resultsLocked = false;
           gameplayActive = true;
           sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
             delay: 1200, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
@@ -874,46 +1203,84 @@ startButton.addEventListener("click", async () => {
 
   } catch (err) {
     console.error('Start game error:', err);
-    alert('Failed to start (no life was spent unless the transaction confirmed): ' + shortError(err));
+    uiAlert('Failed to start (no life was spent unless the transaction confirmed): ' + shortError(err));
     startButton.innerText = 'Start Game';
     startButton.disabled = false;
-    document.body.classList.remove('game-mode');
+    exitPlayMode();
   }
 });
 
-    // v2: read the game id from the GameStarted event and get a backend session token for it.
-    async function openGameSession(contract, receipt) {
-      let gameId = null;
-      for (const log of receipt.logs || []) {
-        try {
-          const ev = contract.interface.parseLog(log);
-          if (ev?.name === 'GameStarted' && ev.args.player.toLowerCase() === userAddress.toLowerCase()) gameId = ev.args.gameId;
-        } catch (e) { /* not ours */ }
-      }
-      if (gameId === null) return null;
+    // v2: get a backend session token for an on-chain game id (retries: the server's RPC can lag a block or two).
+    async function openGameSession(gameId) {
       try {
-        const r = await fetch(ECONOMY.SESSION_API, {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ player: userAddress, gameId: gameId.toString() })
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-        return { gameId, session: j.session };
+        let lastErr;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const r = await withTimeout(fetch(ECONOMY.SESSION_API, {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ player: userAddress, gameId: gameId.toString() })
+          }), 15000, 'Score session request');
+          const j = await r.json().catch(() => ({}));
+          if (r.ok) { console.log('[start] session ok'); return { gameId, session: j.session }; }
+          lastErr = new Error(j.error || `HTTP ${r.status}`);
+          console.warn('[start] session attempt', attempt + 1, lastErr.message);
+          if (r.status !== 404 && r.status !== 429 && r.status < 500) break;
+          await sleep(2000);
+        }
+        throw lastErr;
       } catch (e) {
         console.warn('Session open failed; this score cannot be signed', e);
         showToast('⚠️ Score server unavailable: you can play, but this score may not be saved.', true);
-        return { gameId, session: null };
+        return { gameId, session: null, sessionError: shortError(e) };
       }
     }
 
-    document.getElementById("buy-1").addEventListener("click", () => buyLives(1, 0.10));
-    document.getElementById("buy-10").addEventListener("click", () => buyLives(10, 0.90));
-    document.getElementById("buy-25").addEventListener("click", () => buyLives(25, 2.25));
-    document.getElementById("buy-50").addEventListener("click", () => buyLives(50, 4.50));
+    // v5.7: pack prices come from LeaderboardV2.packPrice(lives) on-chain (USDC, 6 decimals) – never hardcoded.
+    // FALLBACK is only shown until the chain answers (current intended prices: $0.01/life, 10% off packs).
+    const PACK_SIZES = [1, 10, 25, 50];
+    const PACK_PRICE_FALLBACK = { 1: 0n, 10: 0n, 25: 0n, 50: 0n }; // free play: nothing for sale unless the chain says so
+    const FREE_PLAY_HTML = 'Free to play — you only pay the network fee to save your score and earn AST.';
+    const PAID_PRIZE_HTML = document.getElementById('prize-info').innerHTML;
+    const packPrices = { ...PACK_PRICE_FALLBACK };
+    let packPricesLive = false;
+    function fmtUsd(micro) {
+      const s = ethers.formatUnits(micro, 6); // e.g. "0.225", "0.01", "4.5"
+      const [i, f = ''] = s.split('.');
+      return '$' + i + '.' + f.replace(/0+$/, '').padEnd(2, '0');
+    }
+    function renderPackPrices() {
+      PACK_SIZES.forEach((n) => {
+        const btn = document.getElementById('buy-' + n); if (!btn) return;
+        const p = packPrices[n];
+        btn.textContent = `${n} ${n === 1 ? 'Life' : 'Lives'}: ${p > 0n ? fmtUsd(p) : 'n/a'}`;
+        btn.disabled = !(p > 0n);
+        btn.style.display = p > 0n ? '' : 'none'; // unsold packs hidden
+      });
+      // v5.7 free play: paid packs + USDC prize pot are shown only if the contract actually sells packs.
+      const anyForSale = packPricesLive && PACK_SIZES.some((n) => packPrices[n] > 0n);
+      const bb = document.querySelector('.buy-buttons'); if (bb) bb.style.display = anyForSale ? '' : 'none';
+      const pi = document.getElementById('prize-info'); if (pi) pi.innerHTML = anyForSale ? PAID_PRIZE_HTML : FREE_PLAY_HTML;
+      const note = document.getElementById('life-price-note');
+      if (note) note.textContent = packPrices[1] > 0n ? ` · 1 life = ${fmtUsd(packPrices[1])}` : '';
+
+    }
+    async function loadPackPrices(prov) {
+      if (!useV2) return renderPackPrices();
+      try {
+        const p = prov || provider || new ethers.JsonRpcProvider('https://mainnet.base.org', 8453, { staticNetwork: true });
+        const c = new ethers.Contract(leaderboardAddress, lbAbi, p);
+        const vals = await withTimeout(Promise.all(PACK_SIZES.map((n) => c.packPrice(n))), 8000, 'packPrice');
+        PACK_SIZES.forEach((n, i) => { packPrices[n] = BigInt(vals[i]); });
+        packPricesLive = true;
+      } catch (e) { console.warn('[prices] using fallback', e?.message || e); }
+      renderPackPrices();
+    }
+    renderPackPrices();
+    document.addEventListener('DOMContentLoaded', () => loadPackPrices());
+    PACK_SIZES.forEach((n) => document.getElementById('buy-' + n).addEventListener('click', () => buyLives(n, Number(packPrices[n]) / 1e6)));
 
     let buyInProgress = false;
     async function buyLives(amount, usdPrice) {
-      if (!signer) return alert("Connect first");
+      if (!signer) return uiAlert("Connect first");
       if (buyInProgress) return;
       buyInProgress = true;
       const buyButtons = ['buy-1', 'buy-10', 'buy-25', 'buy-50'].map(id => document.getElementById(id));
@@ -922,12 +1289,16 @@ startButton.addEventListener("click", async () => {
         // v5.0: removed the sdk.pay() branch (it sent USD to the board without crediting lives).
         // v1 legacy mode: no purchases, USDC sent to 0xEFd9 can never be withdrawn.
         if (!useV2) throw new Error(LEGACY_MSG);
-        showToast('⏳ Checking USDC allowance…');
-        await ensureUsdcAllowance(amount);
-        showToast('⏳ Buying lives… confirm in your wallet');
-        const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
-        const tx = await contract.buyLives(amount);
-        await waitForSuccess(tx);
+        showToast('⏳ Checking USDC…');
+        const { cost, needApprove } = await ensureUsdcAllowance(amount);
+        const livesBefore = BigInt(await lbRead().playerLives(userAddress));
+        const usdcRead = new ethers.Contract(usdcAddress, usdcAbi, provider);
+        const calls = [];
+        if (needApprove) calls.push({ to: usdcAddress, data: new ethers.Interface(usdcAbi).encodeFunctionData('approve', [leaderboardAddress, cost]),
+          check: async () => BigInt(await usdcRead.allowance(userAddress, leaderboardAddress)) >= cost });
+        calls.push({ to: leaderboardAddress, data: lbIface().encodeFunctionData('buyLives', [amount]) });
+        showToast(needApprove ? `⏳ Approve ${ethers.formatUnits(cost, 6)} USDC + buy ${amount} lives… confirm in your wallet` : '⏳ Buying lives… confirm in your wallet');
+        await sendAndConfirm(calls, async () => BigInt(await lbRead().playerLives(userAddress)) >= livesBefore + BigInt(amount), 'Buy lives');
         if (contractsConfigured) {
           const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
           lives = Number(await c.playerLives(userAddress));
@@ -935,10 +1306,10 @@ startButton.addEventListener("click", async () => {
         await updateTopBar();
         updatePrizePot();
         updateUsdcBalance();
-        alert(`✅ Purchase of ${amount} lives confirmed on-chain. Lives: ${lives === null ? 'refresh to see' : lives}`);
+        uiAlert(`✅ Purchase of ${amount} lives confirmed on-chain. Lives: ${lives === null ? 'refresh to see' : lives}`);
       } catch (err) {
         console.error("Buy lives error:", err);
-        alert("❌ Purchase failed, no lives were added: " + shortError(err));
+        uiAlert("❌ Purchase failed, no lives were added: " + shortError(err));
       } finally {
         buyInProgress = false;
         buyButtons.forEach(b => { if (b) b.disabled = false; });
@@ -950,23 +1321,25 @@ startButton.addEventListener("click", async () => {
     async function submitScoreToChain(finalScore, playerName = "Player") {
       if (!contractsConfigured || !signer || finalScore < 1) return { status: 'skipped', error: 'Not connected' };
       if (!useV2) return { status: 'failed', error: LEGACY_MSG };
-      if (!currentGame?.session) return { status: 'failed', error: 'No score session for this game (score server was unavailable at start)' };
+      const game = currentGame;
+      if (!game) return { status: 'skipped', error: 'No active game (already submitted)' };
+      if (!game.session) return { status: 'failed', error: game.sessionError ? `No score session for this game (score server was unavailable at start: ${game.sessionError})` : 'No score session for this game' };
       let txHash = null;
       try {
         const r = await fetch(ECONOMY.SCORE_API, {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ player: userAddress, gameId: currentGame.gameId.toString(), score: finalScore,
-                                 name: cleanPlayerName(playerName), session: currentGame.session })
+          body: JSON.stringify({ player: userAddress, gameId: game.gameId.toString(), score: finalScore,
+                                 name: cleanPlayerName(playerName), session: game.session })
         });
         const signed = await r.json().catch(() => ({}));
         if (!r.ok) return { status: 'failed', error: `Score server: ${signed.error || 'HTTP ' + r.status}` };
         const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
         const before = await token.balanceOf(userAddress).catch(() => null);
-        const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
-        const tx = await contract.submitScore(currentGame.gameId, signed.score, signed.name, signed.deadline, signed.signature);
+        const gid = BigInt(game.gameId);
+        const data = lbIface().encodeFunctionData('submitScore', [gid, signed.score, signed.name, signed.deadline, signed.signature]);
         currentGame = null;
-        txHash = tx.hash;
-        await waitForSuccess(tx);
+        const sent = await sendAndConfirm([{ to: leaderboardAddress, data }], async () => (await lbRead().games(userAddress, gid)).submitted, 'Submit score');
+        txHash = sent.kind === 'tx' ? sent.id : null;
         let astMinted = null;
         if (before !== null) {
           const after = await token.balanceOf(userAddress).catch(() => null);
@@ -1024,7 +1397,7 @@ startButton.addEventListener("click", async () => {
         const bal = useV2
           ? await new ethers.Contract(leaderboardAddress, lbAbi, provider).prizePot()
           : await new ethers.Contract(usdcAddress, usdcAbi, provider).balanceOf(leaderboardAddress);
-        document.getElementById("pot-balance").innerText = ethers.formatUnits(bal, 6);
+        const potEl = document.getElementById("pot-balance"); if (potEl) potEl.innerText = ethers.formatUnits(bal, 6);
       } catch (err) { console.error("Pot error:", err); }
     }
 
@@ -1051,12 +1424,8 @@ startButton.addEventListener("click", async () => {
       const balance = BigInt(await usdc.balanceOf(userAddress));
       if (balance < cost) throw new Error(`Not enough USDC: need ${ethers.formatUnits(cost, 6)}, have ${ethers.formatUnits(balance, 6)}`);
       const allowance = BigInt(await usdc.allowance(userAddress, leaderboardAddress));
-      if (allowance >= cost) return cost;
-      showToast(`⏳ Approve exactly ${ethers.formatUnits(cost, 6)} USDC in your wallet`);
-      const usdcWithSigner = new ethers.Contract(usdcAddress, ['function approve(address spender, uint256 amount) returns (bool)'], signer);
-      const tx = await usdcWithSigner.approve(leaderboardAddress, cost);
-      await waitForSuccess(tx);
-      return cost;
+      // Exact-amount approval is sent together with buyLives (one wallet_sendCalls batch when supported).
+      return { cost, needApprove: allowance < cost };
     }
 
     async function updateAstFacts() {
@@ -1107,9 +1476,9 @@ startButton.addEventListener("click", async () => {
     async function awardFreeLifeOnChain() {
       if (!signer || !contractsConfigured || !userAddress) throw new Error('Connect your wallet first');
       if (!useV2) throw new Error(LEGACY_MSG);
-      const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
-      const tx = await contract.claimDailyLives();
-      await waitForSuccess(tx);
+      const before = BigInt(await lbRead().nextDailyClaimAt(userAddress));
+      await sendAndConfirm([{ to: leaderboardAddress, data: lbIface().encodeFunctionData('claimDailyLives', []) }],
+        async () => BigInt(await lbRead().nextDailyClaimAt(userAddress)) > before, 'Claim daily life');
       const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
       lives = Number(await c.playerLives(userAddress));
       await updateTopBar();
@@ -1122,33 +1491,107 @@ startButton.addEventListener("click", async () => {
       try {
         await awardFreeLifeOnChain();
         await refreshDailyFromChain();
-        alert("✅ 1 free life confirmed on-chain!");
+        uiAlert("✅ 1 free life confirmed on-chain!");
       } catch (e) {
         console.error("On-chain daily award failed", e);
-        alert("❌ Free life NOT added (nothing was saved): " + shortError(e));
+        uiAlert("❌ Free life NOT added (nothing was saved): " + shortError(e));
       }
       updateDailyClaim();
     });
 
-    async function shareOnBase(theScore) {
-      const n = Number(theScore) || 0;
-      const fallback = () => window.open(`https://base.app/compose?text=${encodeURIComponent(`Just scored ${n} in Asteroid Shooter on Base!`)}`, "_blank", "noopener");
-      const compose = sdk?.actions?.composeCast;
-      if (typeof compose !== 'function') return fallback();
-      try {
-        const res = await compose({
-          text: `Just scored ${n} in Asteroid Shooter on Base! 🚀 Can you beat me?`,
-          embeds: [window.location.origin + '/']
-        });
-        if (res?.cast) alert("Score shared!");
-      } catch (err) {
-        fallback();
-      }
+    // v5.2: the base.app / wallet.coinbase.com compose deep link is dead (404 in the Coinbase Wallet app).
+    function uiToast(msg) {
+      const t = document.createElement('div');
+      t.textContent = msg;
+      t.style.cssText = 'position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translateX(-50%);z-index:10000;background:#111;color:#32FF9A;border:1px solid #32FF9A;border-radius:8px;padding:10px 16px;font-size:14px;max-width:90vw';
+      document.body.appendChild(t); setTimeout(() => t.remove(), 2500);
     }
-    document.getElementById("share-base-btn").addEventListener("click", () => shareOnBase(score));
+    function shareText(n) { return `Just scored ${n} in Asteroid Shooter on Base! 🚀 Can you beat me?`; }
+    function shareUrl() { return window.location.origin + '/'; }
+    async function copyShareLink(n) {
+      const txt = `${shareText(n)} ${shareUrl()}`;
+      try { await navigator.clipboard.writeText(txt); uiToast('Link copied to clipboard'); return; } catch (e) {}
+      try {
+        const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove();
+        if (ok) return uiToast('Link copied to clipboard');
+      } catch (e) {}
+      uiAlert(txt);
+    }
+    async function shareScore(theScore) {
+      const n = Number(theScore) || 0;
+      const compose = sdk?.actions?.composeCast;
+      if (window.__inMiniApp && typeof compose === 'function') {
+        try { await withTimeout(compose({ text: shareText(n), embeds: [shareUrl()] }), 8000, 'composeCast'); return; }
+        catch (e) { console.warn('[share] composeCast failed', e?.message || e); }
+      }
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Asteroid Shooter', text: shareText(n), url: shareUrl() }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; console.warn('[share] navigator.share failed', e); }
+      }
+      await copyShareLink(n);
+    }
+    function openExternal(url) { const w = window.open(url, '_blank', 'noopener'); if (!w) location.href = url; }
+    document.getElementById('share-fc-btn').addEventListener('click', () => {
+      const n = Number(score) || 0;
+      openExternal(`https://farcaster.xyz/~/compose?text=${encodeURIComponent(shareText(n))}&embeds[]=${encodeURIComponent(shareUrl())}`);
+    });
+    // v5.8: X share must work inside in-app browsers (Base app / Farcaster) which block window.open.
+    // Real <a href target=_blank> on a direct tap; mini-app hosts use sdk.actions.openUrl;
+    // if nothing happened (page never lost focus), fall back to location.href; text is also copied.
+    function xIntentUrl() { const n = Number(score) || 0; return `https://x.com/intent/post?text=${encodeURIComponent(shareText(n) + ' ' + shareUrl())}`; }
+    function copyQuiet(txt) { try { navigator.clipboard?.writeText(txt).catch(() => {}); } catch (e) {} }
+    const shareXEl = document.getElementById('share-x-btn');
+    const refreshXHref = () => { shareXEl.href = xIntentUrl(); };
+    shareXEl.addEventListener('pointerdown', refreshXHref);
+    shareXEl.addEventListener('focus', refreshXHref);
+    shareXEl.addEventListener('click', (ev) => {
+      const url = xIntentUrl(); shareXEl.href = url;
+      const n = Number(score) || 0; copyQuiet(shareText(n) + ' ' + shareUrl());
+      const openUrl = sdk?.actions?.openUrl;
+      // v5.10: on phones try the X app scheme first (universal links don't fire from in-app webviews),
+      // then fall back to the x.com intent if the page is still visible after ~1.2s.
+      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        ev.preventDefault();
+        const appUrl = `twitter://post?message=${encodeURIComponent(shareText(n) + ' ' + shareUrl())}`;
+        let left = false; const mark = () => { left = true; };
+        // only a real app switch (page hidden) counts; a blur alone can be iOS's 'Open in X?' / error sheet
+        window.addEventListener('pagehide', mark, { once: true });
+        document.addEventListener('visibilitychange', mark, { once: true });
+        try {
+          if (window.__inMiniApp && typeof openUrl === 'function') Promise.resolve().then(() => openUrl(appUrl)).catch(() => {});
+          else location.href = appUrl;
+        } catch (e) {}
+        setTimeout(() => {
+          window.removeEventListener('pagehide', mark); document.removeEventListener('visibilitychange', mark);
+          if (left || document.visibilityState !== 'visible') return;
+          if (window.__inMiniApp && typeof openUrl === 'function') Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
+          else { const w = window.open(url, '_blank', 'noopener'); if (!w) location.href = url; }
+        }, 1200);
+        return;
+      }
+      if (window.__inMiniApp && typeof openUrl === 'function') {
+        ev.preventDefault();
+        Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
+        return;
+      }
+      // let the native anchor navigation happen; verify it did
+      let left = false; const mark = () => { left = true; };
+      window.addEventListener('blur', mark, { once: true });
+      document.addEventListener('visibilitychange', mark, { once: true });
+      setTimeout(() => {
+        window.removeEventListener('blur', mark); document.removeEventListener('visibilitychange', mark);
+        if (!left && document.visibilityState === 'visible') {
+          uiToast('Post text copied — opening X…');
+          location.href = url;
+        }
+      }, 900);
+    });
+    document.getElementById("share-base-btn").addEventListener("click", () => shareScore(score));
 
     document.getElementById("return-home-btn").addEventListener("click", () => {
       hideResultsOverlay();
+      exitPlayMode();
       if (document.fullscreenElement) document.exitFullscreen();
       document.getElementById('start-game').disabled = false;
     });
@@ -1158,34 +1601,57 @@ startButton.addEventListener("click", async () => {
       document.getElementById("start-game").click();
     });
 
+    function showManualAstImport(reason) {
+      const host = document.getElementById('results-ast') || document.body;
+      document.getElementById('ast-manual')?.remove();
+      const box = document.createElement('div'); box.id = 'ast-manual';
+      box.style.cssText = 'margin-top:8px;padding:8px;border:1px solid #F7931A;border-radius:8px;font-size:12px;text-align:left;word-break:break-all;';
+      const p = (t) => { const d = document.createElement('div'); d.textContent = t; d.style.margin = '4px 0'; return d; };
+      if (reason) box.append(p(reason));
+      box.append(p('Import AST manually in your wallet: Base network → Import / Add custom token → paste this address:'));
+      const code = document.createElement('code'); code.textContent = tokenAddress; code.style.cssText = 'display:block;color:#F7931A;margin:4px 0;';
+      const copy = document.createElement('button'); copy.textContent = 'Copy token address';
+      copy.style.cssText = 'padding:6px 12px;font-size:13px;background:#F7931A;color:#000;border:none;border-radius:6px;';
+      copy.addEventListener('click', async () => {
+        let ok = false;
+        try { await navigator.clipboard.writeText(tokenAddress); ok = true; } catch (e) {
+          try { const ta = document.createElement('textarea'); ta.value = tokenAddress; document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch (e2) {}
+        }
+        copy.textContent = ok ? 'Copied ✓' : 'Select & copy the address above';
+      });
+      const scan = document.createElement('a'); scan.href = `https://basescan.org/token/${tokenAddress}`; scan.target = '_blank'; scan.rel = 'noopener noreferrer';
+      scan.textContent = 'View AST on BaseScan'; scan.style.cssText = 'display:block;margin-top:6px;color:#9cf;';
+      box.append(code, copy, p('Symbol: AST · Decimals: 18 · Network: Base'), scan);
+      host.append(box);
+    }
     async function addASTToMetaMask() {
-      if (!window.ethereum) return alert("MetaMask not detected");
+      const eth = walletEip1193 || window.ethereum || fcProvider;
+      if (!eth) return showManualAstImport('No wallet detected.');
       try {
-        const added = await window.ethereum.request({
+        const added = await withTimeout(eth.request({
           method: 'wallet_watchAsset',
           params: {
             type: 'ERC20',
-            options: {
-              address: tokenAddress,
-              symbol: 'AST',
-              decimals: 18
-            }
+            options: { address: tokenAddress, symbol: 'AST', decimals: 18, image: location.origin + '/icon.png' }
           }
-        });
-        alert(added ? '✅ AST token added to your wallet' : 'AST token was not added');
+        }), 20000, 'wallet_watchAsset');
+        if (added === false) return showManualAstImport('The wallet did not add AST.');
+        uiToast ? uiToast('✅ AST added to your wallet') : uiAlert('✅ AST added to your wallet');
+        showManualAstImport('If AST still does not show, your wallet may need it imported manually:');
       } catch (err) {
-        alert('Could not add token');
+        console.warn('[watchAsset]', err?.code, err?.message || err);
+        showManualAstImport(err?.code === 4001 ? 'Request cancelled.' : 'Your wallet does not support adding tokens from apps.');
       }
     }
 
     async function claimOneTimeTask(taskId, buttonId) {
       const completed = localStorage.getItem(`task_${taskId}_completed`);
       if (completed) {
-        alert("You've already claimed this task on this device.");
+        uiAlert("You've already claimed this task on this device.");
         return;
       }
       // v5.0: task rewards need backend-verified grants (claimLifeGrant), not built yet (ISSUES.md S5).
-      return alert(useV2 ? 'Task rewards are coming soon. Claim your daily free life meanwhile!' : LEGACY_MSG);
+      return uiAlert(useV2 ? 'Task rewards are coming soon. Claim your daily free life meanwhile!' : LEGACY_MSG);
       /* eslint-disable no-unreachable */
       const btn = document.getElementById(buttonId);
       if (btn) { btn.disabled = true; btn.innerText = 'Submitting…'; }
@@ -1193,11 +1659,11 @@ startButton.addEventListener("click", async () => {
         await awardFreeLifeOnChain();
         localStorage.setItem(`task_${taskId}_completed`, "true");
         if (btn) { btn.innerText = "Completed"; btn.style.opacity = "0.6"; }
-        alert("✅ 1 free life confirmed on-chain!");
+        uiAlert("✅ 1 free life confirmed on-chain!");
       } catch (e) {
         console.error("On-chain award failed", e);
         if (btn) { btn.innerText = 'Claim Life'; btn.disabled = false; }
-        alert("❌ Free life NOT added (nothing was saved): " + shortError(e));
+        uiAlert("❌ Free life NOT added (nothing was saved): " + shortError(e));
       }
     }
     // v4.64: wired here instead of inline onclick="" attributes (CSP-friendly)
