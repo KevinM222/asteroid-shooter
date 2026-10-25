@@ -625,11 +625,18 @@
         spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
         // Touch controls
+        // v5.5: RELATIVE drag. Absolute (ship.x = finger.x) made the ship jump to wherever a new touch began –
+        // re-touching near the middle snapped it back toward the center.
+        this._drag = null;
+        this.input.on('pointerdown', (pointer) => { this._drag = { id: pointer.id, px: pointer.x, sx: ship.x }; });
+        const endDrag = (pointer) => { if (this._drag && this._drag.id === pointer.id) this._drag = null; };
+        this.input.on('pointerup', endDrag); this.input.on('pointerupoutside', endDrag);
         this.input.on('pointermove', (pointer) => {
-          if (gameplayActive && pointer.isDown) {
-            ship.x = Phaser.Math.Clamp(pointer.x, 30, this.scale.width - 30);
-            if (ship.body) ship.body.reset(ship.x, ship.y);
-          }
+          if (!gameplayActive || !pointer.isDown) return;
+          if (!this._drag || this._drag.id !== pointer.id) this._drag = { id: pointer.id, px: pointer.x, sx: ship.x };
+          const half = shipHalfWidth(this);
+          ship.x = Phaser.Math.Clamp(this._drag.sx + (pointer.x - this._drag.px), half, this.scale.width - half);
+          if (ship.body) ship.body.reset(ship.x, ship.y);
         });
       }
 
@@ -652,7 +659,7 @@
           else if (keys.right.isDown) ship.x += moveSpeed;
         }
 
-        ship.x = Phaser.Math.Clamp(ship.x, 25, width - 25);
+        ship.x = Phaser.Math.Clamp(ship.x, shipHalfWidth(this), width - shipHalfWidth(this));
         if (ship.body) ship.body.reset(ship.x, ship.y);
 
         if (spaceKey.isDown && canShoot) {
@@ -810,6 +817,7 @@
     });
 
     // v5.1: keep the whole world inside the canvas on every resize (width OR height), ship pinned near the bottom.
+    function shipHalfWidth(scene) { return 26 * baseScale * 1.6 + 4; }
     function placeShip(scene, keepX) {
       if (!scene || !ship) return;
       const width = scene.scale.width, height = scene.scale.height;
@@ -819,7 +827,11 @@
       if (ship.body) { ship.body.setSize(36, 48); ship.body.setOffset(-18, -24); /* unscaled units: Arcade multiplies by ship.scale */ }
       ship.setDepth(10);
       const halfW = 26 * s + 4;
-      const x = Phaser.Math.Clamp(keepX ? ship.x : width / 2, halfW, width - halfW);
+      // v5.5: keep x (proportionally if the width changed); only recenter when explicitly asked (new game).
+      const prevW = scene._shipW || width;
+      const keep = keepX !== false || gameplayActive;
+      const x = Phaser.Math.Clamp(keep ? ship.x * (width / prevW) : width / 2, halfW, width - halfW);
+      scene._shipW = width;
       const y = height - 34 * s - Math.max(10, height * 0.03); // thrusters end at +34*s below the origin
       ship.x = x; ship.y = y;
       if (ship.body) { ship.body.reset(x, y); }
@@ -830,7 +842,7 @@
     }
     game.scale.on('resize', function() {
       const sceneInstance = game.scene.scenes[0];
-      if (sceneInstance && sceneInstance.sys.isActive()) placeShip(sceneInstance, gameplayActive);
+      if (sceneInstance && sceneInstance.sys.isActive()) placeShip(sceneInstance, true);
     });
 
     // v5.2: measure the *real* visible area (visualViewport), never vh/innerHeight alone – in-app browsers
