@@ -477,6 +477,11 @@
     let ship, asteroids, lazerGroup, keys, spaceKey;
     let stars = [];
     let baseScale = 1.0;
+    // v5.3: clamp so a transiently tiny/zero canvas (iOS reports the parent size late) can never shrink sprites to a speck.
+    function computeBaseScale(w, h) {
+      const r = Math.min(w / 800, h / 500, 1.0);
+      return Math.max(0.5, Number.isFinite(r) ? r : 1);
+    }
     let personalHighScore = 0;
 
     // v4.64: results overlay reflects the real submission state:
@@ -539,7 +544,7 @@
       create() {
         const width = this.scale.width;
         const height = this.scale.height;
-        baseScale = Math.min(width / 800, height / 500, 1.0);
+        baseScale = computeBaseScale(width, height);
 
         // Force black background to cover any gaps
         this.bgRect = this.add.rectangle(0, 0, width, height, 0x000000).setOrigin(0);
@@ -562,7 +567,9 @@
 
         // === IMPROVED SHIP (v4.62) ===
         ship = this.add.graphics({ x: width / 2, y: height * 0.82 });
-        const s = baseScale * 1.6;
+        // v5.3: geometry is drawn ONCE in fixed units (s=1); on-screen size comes from ship.setScale(shipScale())
+        // in placeShip, recomputed absolutely from the current canvas size (never compounding, never 0).
+        const s = 1;
 
         // Main body
         ship.fillStyle(0x0052FF, 1);
@@ -596,7 +603,6 @@
         ship.body.immovable = true;
         ship.setDepth(5);
         this.add.existing(ship);
-        ship.body.setSize(36 * s, 48 * s);
         placeShip(this, false);
 
         asteroids = this.physics.add.group();
@@ -612,7 +618,7 @@
         this.input.on('pointermove', (pointer) => {
           if (gameplayActive && pointer.isDown) {
             ship.x = Phaser.Math.Clamp(pointer.x, 30, this.scale.width - 30);
-            if (ship.body) ship.body.x = ship.x;
+            if (ship.body) ship.body.reset(ship.x, ship.y);
           }
         });
       }
@@ -637,7 +643,7 @@
         }
 
         ship.x = Phaser.Math.Clamp(ship.x, 25, width - 25);
-        if (ship.body) ship.body.x = ship.x;
+        if (ship.body) ship.body.reset(ship.x, ship.y);
 
         if (spaceKey.isDown && canShoot) {
           this.shootLaser();
@@ -797,8 +803,11 @@
     function placeShip(scene, keepX) {
       if (!scene || !ship) return;
       const width = scene.scale.width, height = scene.scale.height;
-      baseScale = Math.min(width / 800, height / 500, 1.0);
+      baseScale = computeBaseScale(width, height);
       const s = baseScale * 1.6;
+      ship.setScale(s);
+      if (ship.body) { ship.body.setSize(36, 48); ship.body.setOffset(-18, -24); /* unscaled units: Arcade multiplies by ship.scale */ }
+      ship.setDepth(10);
       const halfW = 26 * s + 4;
       const x = Phaser.Math.Clamp(keepX ? ship.x : width / 2, halfW, width - halfW);
       const y = height - 34 * s - Math.max(10, height * 0.03); // thrusters end at +34*s below the origin
@@ -873,7 +882,7 @@
       if (!_dbg) {
         _dbg = document.createElement('div');
         _dbg.id = 'layout-debug';
-        _dbg.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:9999;background:rgba(0,0,0,.8);color:#0f0;font:11px/1.3 monospace;padding:4px 6px;border:1px solid #0f0;pointer-events:none;white-space:pre;text-align:left';
+        _dbg.style.cssText = 'position:fixed;left:4px;top:calc(env(safe-area-inset-top,0px) + 34px);z-index:9999;background:rgba(0,0,0,.6);color:#0f0;font:11px/1.3 monospace;padding:4px 6px;border:1px solid #0f0;pointer-events:none;white-space:pre;text-align:left';
         document.body.appendChild(_dbg);
       }
       const v = vv(), safe = safeInsets();
