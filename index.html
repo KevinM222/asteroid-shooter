@@ -608,7 +608,7 @@
         ship.fillTriangle(-6 * s, 24 * s, 6 * s, 24 * s, 0, 32 * s);
 
         this.physics.add.existing(ship);
-        ship.body.setCollideWorldBounds(true);
+        ship.body.setCollideWorldBounds(false); // v5.6: x is clamped in code (bounds+offset body stopped it ~12px short of the right edge)
         ship.body.setAllowGravity(false);
         ship.body.immovable = true;
         ship.setDepth(5);
@@ -669,7 +669,7 @@
         }
 
         asteroids.getChildren().forEach(asteroid => {
-          asteroid.setPosition(asteroid.body.x, asteroid.body.y);
+          // v5.6: removed setPosition(body.x, body.y) – it copied the hit-box corner onto the sprite every frame
           asteroid.rotation += 0.05;
         });
 
@@ -688,48 +688,51 @@
         });
       }
 
+      // v5.6: lasers/asteroids are scaled ONCE (they were drawn at k AND setScale(k) → k², and their hit boxes
+      // hung off to the bottom-right of the sprite, so edge asteroids were unhittable). Hit boxes are centered.
       shootLaser() {
-        const laserScale = baseScale;
-        const laser = this.add.graphics({ x: ship.x, y: ship.y - 22 * laserScale });
+        const k = baseScale;
+        // Arcade bodies on Graphics misbehave with negative offsets, so draw from (0,0) and place the
+        // object's top-left so the laser's CENTER is exactly ship.x.
+        const hw = LASER_HALF_W * k;
+        const laser = this.add.graphics({ x: ship.x - hw, y: ship.y - 34 * k });
         laser.fillStyle(0x32FF9A, 1);
-        laser.fillRect(-2.5 * laserScale, -12 * laserScale, 5 * laserScale, 26 * laserScale);
+        laser.fillRect(0, 0, hw * 2, 26 * k);
         laser.fillStyle(0xF7931A, 0.9);
-        laser.fillRect(-1.2 * laserScale, -8 * laserScale, 2.4 * laserScale, 18 * laserScale);
-        laser.setScale(laserScale);
+        laser.fillRect(hw - 1.2 * k, 4 * k, 2.4 * k, 18 * k);
         this.physics.add.existing(laser);
         lazerGroup.add(laser);
-        laser.body.setVelocityY(-500 * laserScale);
         laser.body.setAllowGravity(false);
-        laser.body.setSize(4 * laserScale, 20 * laserScale);
+        laser.body.setSize(hw * 2, 26 * k, false);
+        laser.body.setVelocityY(-500 * k);
       }
 
       spawnAsteroid() {
-        const width = this.scale.width;
-        const astScale = baseScale;
-        const x = Phaser.Math.Between(20 * astScale, width - 20 * astScale);
-        const asteroid = this.add.graphics({ x: x, y: -45 * astScale });
-        
+        const k = baseScale;
+        const [minX, maxX] = asteroidSpawnRange(this);
+        const x = Phaser.Math.FloatBetween(minX, maxX);
+        const R = 20 * k; // drawn around (0,0) so rotation spins in place; object x == center x
+        const asteroid = this.add.graphics({ x: x, y: -45 * k });
         asteroid.fillStyle(0x3A3F5A, 1);
         asteroid.lineStyle(2.5, 0xF7931A, 0.9);
-        asteroid.fillCircle(0, 0, 20 * astScale);
-        asteroid.strokeCircle(0, 0, 20 * astScale);
-        
+        asteroid.fillCircle(0, 0, R);
+        asteroid.strokeCircle(0, 0, R);
         asteroid.fillStyle(0x1F2438, 1);
-        asteroid.fillCircle(-5 * astScale, -7 * astScale, 4 * astScale);
-        asteroid.fillCircle(6 * astScale, 5 * astScale, 5 * astScale);
+        asteroid.fillCircle(-5 * k, -7 * k, 4 * k);
+        asteroid.fillCircle(6 * k, 5 * k, 5 * k);
         if (Math.random() > 0.55) {
           asteroid.fillStyle(0x32FF9A, 0.85);
-          asteroid.fillCircle(4 * astScale, -4 * astScale, 2 * astScale);
+          asteroid.fillCircle(4 * k, -4 * k, 2 * k);
         }
-        
-        asteroid.setScale(astScale);
         this.physics.add.existing(asteroid);
         asteroids.add(asteroid);
-        asteroid.body.setSize(38 * astScale, 38 * astScale);
+        asteroid.body.setSize(AST_R * 2 * k, AST_R * 2 * k, false);
+        asteroid.body.setOffset(-AST_R * k, -AST_R * k); // centered hit box
         asteroid.body.setAllowGravity(false);
+        asteroid.body.setVelocityX(0);                  // straight down only – no sideways drift out of range
         const baseSpeed = 120;
         const currentSpeed = baseSpeed + (speedMultiplier * 45);
-        asteroid.body.setVelocityY(currentSpeed * astScale);
+        asteroid.body.setVelocityY(currentSpeed * k);
       }
 
       hitShip(shipObj, asteroid) {
@@ -817,7 +820,18 @@
     });
 
     // v5.1: keep the whole world inside the canvas on every resize (width OR height), ship pinned near the bottom.
-    function shipHalfWidth(scene) { return 26 * baseScale * 1.6 + 4; }
+    // v5.6: ship may sit nearly flush with the edge (visual half width 26*S, minus a few px).
+    function shipHalfWidth(scene) { return Math.max(8, 26 * baseScale * 1.6 - 4); }
+    const AST_R = 19, LASER_HALF_W = 2.5; // unit (unscaled) hit radii
+    function asteroidCenterX(a) { return a.x; }
+    function shipXRange(scene) { const h = shipHalfWidth(scene); return [h, scene.scale.width - h]; }
+    // Asteroid centers are spawned only where a laser from the ship (laser x == ship.x) can overlap them,
+    // with a safety margin so the overlap is never a 1px graze.
+    function asteroidSpawnRange(scene) {
+      const [a, b] = shipXRange(scene);
+      const reach = (AST_R + LASER_HALF_W) * baseScale * 0.6;
+      return [Math.max(0, a - reach), Math.min(scene.scale.width, b + reach)];
+    }
     function placeShip(scene, keepX) {
       if (!scene || !ship) return;
       const width = scene.scale.width, height = scene.scale.height;
@@ -826,7 +840,7 @@
       ship.setScale(s);
       if (ship.body) { ship.body.setSize(36, 48); ship.body.setOffset(-18, -24); /* unscaled units: Arcade multiplies by ship.scale */ }
       ship.setDepth(10);
-      const halfW = 26 * s + 4;
+      const halfW = shipHalfWidth(scene);
       // v5.5: keep x (proportionally if the width changed); only recenter when explicitly asked (new game).
       const prevW = scene._shipW || width;
       const keep = keepX !== false || gameplayActive;
