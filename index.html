@@ -476,6 +476,29 @@
     let canShoot = true;
     let ship, asteroids, lazerGroup, keys, spaceKey;
     let stars = [];
+    // v5.4: starfield uniformly spread over the CURRENT world; count scales with area; per-star parallax speeds.
+    function buildStars(scene) {
+      const width = scene.scale.width, height = scene.scale.height;
+      stars.forEach(st => st.destroy()); stars = [];
+      if (!(width > 0 && height > 0)) return;
+      const density = Phaser.Math.Clamp(width * height / (800 * 500), 0.3, 3); // 220 stars at 800x500
+      const layers = [ { n: 120, speed: 0.5, alpha: 0.4, size: 1, color: 0xffffff },
+                       { n: 60,  speed: 1.1, alpha: 0.65, size: 1.6, color: 0x4488FF },
+                       { n: 40,  speed: 2.4, alpha: 0.95, size: 2.2, color: 0x32FF9A } ];
+      const sizeK = Math.max(0.6, baseScale);
+      layers.forEach(L => {
+        for (let i = 0, n = Math.round(L.n * density); i < n; i++) {
+          const star = scene.add.graphics({ x: Math.random() * width, y: Math.random() * height });
+          star.fillStyle(L.color, L.alpha);
+          star.fillCircle(0, 0, L.size * sizeK);
+          star.speedY = L.speed * (0.6 + Math.random() * 0.8);
+          star.setDepth(-0.5);
+          stars.push(star);
+        }
+      });
+      if (scene.bgRect) scene.bgRect.setDepth(-1);
+      scene._starW = width; scene._starH = height;
+    }
     let baseScale = 1.0;
     // v5.3: clamp so a transiently tiny/zero canvas (iOS reports the parent size late) can never shrink sprites to a speck.
     function computeBaseScale(w, h) {
@@ -550,20 +573,7 @@
         this.bgRect = this.add.rectangle(0, 0, width, height, 0x000000).setOrigin(0);
 
         stars = [];
-        for (let layer = 0; layer < 3; layer++) {
-          const numStars = [120, 60, 40][layer];
-          const speed = [0.5, 1.1, 2.4][layer];
-          const alpha = [0.4, 0.65, 0.95][layer];
-          const size = [1, 1.6, 2.2][layer] * baseScale;
-          const color = [0xffffff, 0x4488FF, 0x32FF9A][layer];
-          for (let i = 0; i < numStars; i++) {
-            let star = this.add.graphics({ x: Math.random() * width, y: Math.random() * height });
-            star.fillStyle(color, alpha);
-            star.fillCircle(0, 0, size);
-            star.speedY = speed;
-            stars.push(star);
-          }
-        }
+        buildStars(this);
 
         // === IMPROVED SHIP (v4.62) ===
         ship = this.add.graphics({ x: width / 2, y: height * 0.82 });
@@ -630,7 +640,7 @@
 
         stars.forEach(star => {
           star.y += star.speedY;
-          if (star.y > height) star.y = 0;
+          if (star.y > height + 4) { star.y = -Math.random() * 20; star.x = Math.random() * width; }
         });
 
         const moveSpeed = 5 / baseScale;
@@ -815,7 +825,8 @@
       if (ship.body) { ship.body.reset(x, y); }
       scene.physics.world.setBounds(0, 0, width, height);
       if (scene.bgRect) scene.bgRect.setSize(width, height);
-      stars.forEach((st) => { if (st.x > width) st.x = Math.random() * width; if (st.y > height) st.y = Math.random() * height; });
+      // v5.4: stars were spawned once at boot (tiny iOS canvas) → all bunched in a band. Rebuild for the real world size.
+      if (!scene._starW || Math.abs(width - scene._starW) / scene._starW > 0.1 || Math.abs(height - scene._starH) / scene._starH > 0.1) buildStars(scene);
     }
     game.scale.on('resize', function() {
       const sceneInstance = game.scene.scenes[0];
@@ -871,7 +882,12 @@
         key = 'p' + h + 'w' + Math.round(rect.width);
       }
       _lastSize = key;
-      if (game && game.scale) game.scale.refresh();
+      if (game && game.scale) {
+        game.scale.refresh();
+        // v5.4: refresh() alone can miss a parent that changed while Phaser was booting (iOS) → force the size.
+        const cw = container.clientWidth, ch = container.clientHeight;
+        if (cw > 0 && ch > 0 && (Math.round(game.scale.width) !== cw || Math.round(game.scale.height) !== ch)) game.scale.resize(cw, ch);
+      }
       updateDebugOverlay();
     }
     // ?debug=1 → on-screen numbers Kevin can screenshot.
