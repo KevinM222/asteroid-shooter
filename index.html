@@ -154,7 +154,7 @@
         <button id="play-again-btn" style="font-size:18px; padding:14px 40px; width: 240px; border-color:#F7931A; background: linear-gradient(45deg, #0A0F2E, #111);">Play Again (1 Life)</button>
         <button id="return-home-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: #111; border: 2px solid #555;">← Return to Home</button>
         <button id="share-base-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: linear-gradient(45deg, #0A0F2E, #111); border: 2px solid #32FF9A; color:#32FF9A;">🚀 Share Score</button>
-        <div style="display:flex; gap:8px;"><button id="share-fc-btn" style="font-size:13px; padding:8px 14px; background:#111; border:1px solid #8a63d2; color:#c9b3ff;">Farcaster</button><button id="share-x-btn" style="font-size:13px; padding:8px 14px; background:#111; border:1px solid #888; color:#eee;">Post on X</button></div>
+        <div style="display:flex; gap:8px;"><button id="share-fc-btn" style="font-size:13px; padding:8px 14px; background:#111; border:1px solid #8a63d2; color:#c9b3ff;">Farcaster</button><a id="share-x-btn" href="https://x.com/intent/post" target="_blank" rel="noopener noreferrer" role="button" style="display:inline-block; font-size:13px; padding:8px 14px; background:#111; border:1px solid #888; color:#eee; border-radius:6px; text-decoration:none; font-family:inherit;">Post on X</a></div>
       </div>
     </div>
   </div>
@@ -1523,9 +1523,35 @@ startButton.addEventListener("click", async () => {
       const n = Number(score) || 0;
       openExternal(`https://farcaster.xyz/~/compose?text=${encodeURIComponent(shareText(n))}&embeds[]=${encodeURIComponent(shareUrl())}`);
     });
-    document.getElementById('share-x-btn').addEventListener('click', () => {
-      const n = Number(score) || 0;
-      openExternal(`https://x.com/intent/post?text=${encodeURIComponent(shareText(n))}&url=${encodeURIComponent(shareUrl())}`);
+    // v5.8: X share must work inside in-app browsers (Base app / Farcaster) which block window.open.
+    // Real <a href target=_blank> on a direct tap; mini-app hosts use sdk.actions.openUrl;
+    // if nothing happened (page never lost focus), fall back to location.href; text is also copied.
+    function xIntentUrl() { const n = Number(score) || 0; return `https://x.com/intent/post?text=${encodeURIComponent(shareText(n) + ' ' + shareUrl())}`; }
+    function copyQuiet(txt) { try { navigator.clipboard?.writeText(txt).catch(() => {}); } catch (e) {} }
+    const shareXEl = document.getElementById('share-x-btn');
+    const refreshXHref = () => { shareXEl.href = xIntentUrl(); };
+    shareXEl.addEventListener('pointerdown', refreshXHref);
+    shareXEl.addEventListener('focus', refreshXHref);
+    shareXEl.addEventListener('click', (ev) => {
+      const url = xIntentUrl(); shareXEl.href = url;
+      const n = Number(score) || 0; copyQuiet(shareText(n) + ' ' + shareUrl());
+      const openUrl = sdk?.actions?.openUrl;
+      if (window.__inMiniApp && typeof openUrl === 'function') {
+        ev.preventDefault();
+        Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
+        return;
+      }
+      // let the native anchor navigation happen; verify it did
+      let left = false; const mark = () => { left = true; };
+      window.addEventListener('blur', mark, { once: true });
+      document.addEventListener('visibilitychange', mark, { once: true });
+      setTimeout(() => {
+        window.removeEventListener('blur', mark); document.removeEventListener('visibilitychange', mark);
+        if (!left && document.visibilityState === 'visible') {
+          uiToast('Post text copied — opening X…');
+          location.href = url;
+        }
+      }, 900);
     });
     document.getElementById("share-base-btn").addEventListener("click", () => shareScore(score));
 
@@ -1541,23 +1567,46 @@ startButton.addEventListener("click", async () => {
       document.getElementById("start-game").click();
     });
 
+    function showManualAstImport(reason) {
+      const host = document.getElementById('results-ast') || document.body;
+      document.getElementById('ast-manual')?.remove();
+      const box = document.createElement('div'); box.id = 'ast-manual';
+      box.style.cssText = 'margin-top:8px;padding:8px;border:1px solid #F7931A;border-radius:8px;font-size:12px;text-align:left;word-break:break-all;';
+      const p = (t) => { const d = document.createElement('div'); d.textContent = t; d.style.margin = '4px 0'; return d; };
+      if (reason) box.append(p(reason));
+      box.append(p('Import AST manually in your wallet: Base network → Import / Add custom token → paste this address:'));
+      const code = document.createElement('code'); code.textContent = tokenAddress; code.style.cssText = 'display:block;color:#F7931A;margin:4px 0;';
+      const copy = document.createElement('button'); copy.textContent = 'Copy token address';
+      copy.style.cssText = 'padding:6px 12px;font-size:13px;background:#F7931A;color:#000;border:none;border-radius:6px;';
+      copy.addEventListener('click', async () => {
+        let ok = false;
+        try { await navigator.clipboard.writeText(tokenAddress); ok = true; } catch (e) {
+          try { const ta = document.createElement('textarea'); ta.value = tokenAddress; document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch (e2) {}
+        }
+        copy.textContent = ok ? 'Copied ✓' : 'Select & copy the address above';
+      });
+      const scan = document.createElement('a'); scan.href = `https://basescan.org/token/${tokenAddress}`; scan.target = '_blank'; scan.rel = 'noopener noreferrer';
+      scan.textContent = 'View AST on BaseScan'; scan.style.cssText = 'display:block;margin-top:6px;color:#9cf;';
+      box.append(code, copy, p('Symbol: AST · Decimals: 18 · Network: Base'), scan);
+      host.append(box);
+    }
     async function addASTToMetaMask() {
-      if (!window.ethereum) return uiAlert("No wallet detected");
+      const eth = walletEip1193 || window.ethereum || fcProvider;
+      if (!eth) return showManualAstImport('No wallet detected.');
       try {
-        const added = await window.ethereum.request({
+        const added = await withTimeout(eth.request({
           method: 'wallet_watchAsset',
           params: {
             type: 'ERC20',
-            options: {
-              address: tokenAddress,
-              symbol: 'AST',
-              decimals: 18
-            }
+            options: { address: tokenAddress, symbol: 'AST', decimals: 18, image: location.origin + '/icon.png' }
           }
-        });
-        uiAlert(added ? '✅ AST token added to your wallet' : 'AST token was not added');
+        }), 20000, 'wallet_watchAsset');
+        if (added === false) return showManualAstImport('The wallet did not add AST.');
+        uiToast ? uiToast('✅ AST added to your wallet') : uiAlert('✅ AST added to your wallet');
+        showManualAstImport('If AST still does not show, your wallet may need it imported manually:');
       } catch (err) {
-        uiAlert('Could not add token');
+        console.warn('[watchAsset]', err?.code, err?.message || err);
+        showManualAstImport(err?.code === 4001 ? 'Request cancelled.' : 'Your wallet does not support adding tokens from apps.');
       }
     }
 
