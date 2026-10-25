@@ -233,6 +233,8 @@
       'function nextDailyClaimAt(address player) view returns (uint256)',
       'function prizePot() view returns (uint256)',
       'function getTopScores(uint256 count) view returns (tuple(address player, uint256 score, string playerName)[])',
+      'function gamesStarted(address) view returns (uint256)',
+      'function games(address, uint256) view returns (uint64 startedAt, bool submitted)',
       'function playerLives(address) view returns (uint256)',
       'function playerHighScore(address) view returns (uint256)',
       'function allTimeHigh() view returns (uint256)',
@@ -319,6 +321,100 @@
       return receipt;
     }
 
+    // In-page dialogs. window.confirm()/alert() are silently unsupported in some in-app WebViews (the Base app:
+    // confirm() returns false immediately), which made "Start Game" do nothing at all.
+    function uiDialog(text, withCancel) {
+      console.log('[ui]', text);
+      return new Promise((resolve) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'ui-dialog';
+        wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000000;';
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#111;color:#fff;border:2px solid #32FF9A;border-radius:14px;padding:20px;max-width:88vw;white-space:pre-line;text-align:center;font-size:16px;';
+        const p = document.createElement('div'); p.textContent = text; p.style.marginBottom = '16px'; box.appendChild(p);
+        const done = (v) => { wrap.remove(); resolve(v); };
+        const mk = (label, v, bg) => { const b = document.createElement('button'); b.textContent = label; b.className = 'ui-dialog-' + (v ? 'ok' : 'cancel');
+          b.style.cssText = `margin:0 8px;padding:10px 18px;border-radius:10px;border:0;font-weight:bold;background:${bg};color:#000;`; b.onclick = () => done(v); box.appendChild(b); };
+        if (withCancel) mk('Cancel', false, '#888');
+        mk('OK', true, '#32FF9A');
+        wrap.appendChild(box); document.body.appendChild(wrap);
+      });
+    }
+    const uiAlert = (text) => { uiDialog(String(text), false); };
+    const uiConfirm = (text) => uiDialog(String(text), true);
+
+    // ---- Wallet calls that work for smart wallets (Base app / Coinbase Smart Wallet, EIP-7702, 4337) ----
+    // Prefer EIP-5792 wallet_sendCalls (+ wallet_getCallsStatus); fall back to eth_sendTransaction. Never trust the
+    // returned id/hash or a receipt: success = the expected on-chain state change, read back from the chain.
+    let walletEip1193 = null;
+    let sendCallsSupported = null;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const isUnsupportedErr = (e) => e?.code === 4200 || e?.code === -32601 || /not supported|unsupported|does not exist|not implemented|unknown method/i.test(String(e?.message || ''));
+    async function supportsSendCalls() {
+      if (sendCallsSupported !== null) return sendCallsSupported;
+      try {
+        const caps = await withTimeout(walletEip1193.request({ method: 'wallet_getCapabilities', params: [userAddress, ['0x2105']] }), 5000, 'wallet_getCapabilities');
+        sendCallsSupported = !!caps;
+      } catch (e) { sendCallsSupported = false; }
+      console.log('[tx] wallet_sendCalls supported:', sendCallsSupported);
+      return sendCallsSupported;
+    }
+    async function callsFailed(sent) {
+      try {
+        if (sent.kind === 'calls') {
+          const st = await withTimeout(walletEip1193.request({ method: 'wallet_getCallsStatus', params: [sent.id] }), 5000, 'getCallsStatus');
+          const code = Number(st?.status);
+          if ((code >= 400 && code < 700) || /fail|revert/i.test(String(st?.status))) return true;
+          if ((st?.receipts || []).some((r) => r.status === '0x0' || r.status === 0)) return true;
+        } else if (/^0x[0-9a-fA-F]{64}$/.test(String(sent.id))) {
+          const rc = await provider.getTransactionReceipt(sent.id).catch(() => null);
+          if (rc && rc.status === 0) return true; // a real tx hash that reverted
+        }
+      } catch (e) { /* status unknown; keep reading the chain */ }
+      return false;
+    }
+    async function pollConfirm(check, sent, label, timeoutMs = 180000) {
+      const t0 = Date.now();
+      while (Date.now() - t0 < timeoutMs) {
+        try { if (await check()) { console.log('[tx]', label, 'confirmed on-chain'); return; } } catch (e) { /* RPC hiccup */ }
+        if (sent && await callsFailed(sent)) throw new Error(`${label} failed on-chain (wallet reports failure). Nothing changed.`);
+        await sleep(2000);
+      }
+      throw new Error(`${label}: not confirmed after ${Math.round(timeoutMs / 60000)} min. Check your wallet activity, then refresh this page before retrying.`);
+    }
+    // calls: [{ to, data, check?: async () => bool }]; finalCheck confirms the whole action.
+    async function sendAndConfirm(calls, finalCheck, label) {
+      if (!walletEip1193 || !userAddress) throw new Error('Connect your wallet first');
+      if (await supportsSendCalls()) {
+        try {
+          console.log('[tx]', label, 'via wallet_sendCalls', calls.length, 'call(s)');
+          const r = await withTimeout(walletEip1193.request({ method: 'wallet_sendCalls', params: [{ version: '2.0.0', chainId: '0x2105', from: userAddress,
+            atomicRequired: false, calls: calls.map((c) => ({ to: c.to, data: c.data, value: '0x0' })) }] }), 300000, label + ' (wallet approval)');
+          const sent = { kind: 'calls', id: typeof r === 'string' ? r : r?.id };
+          console.log('[tx]', label, 'calls id', sent.id);
+          await pollConfirm(finalCheck, sent, label);
+          return sent;
+        } catch (e) {
+          if (!isUnsupportedErr(e)) throw e;
+          console.warn('[tx] wallet_sendCalls unsupported, falling back', e?.message);
+          sendCallsSupported = false;
+        }
+      }
+      let sent = null;
+      for (let i = 0; i < calls.length; i++) {
+        const c = calls[i];
+        console.log('[tx]', label, `via eth_sendTransaction (${i + 1}/${calls.length})`);
+        const id = await withTimeout(walletEip1193.request({ method: 'eth_sendTransaction', params: [{ from: userAddress, to: c.to, data: c.data, value: '0x0' }] }), 300000, label + ' (wallet approval)');
+        sent = { kind: 'tx', id };
+        console.log('[tx]', label, 'returned id', id, '(may be a smart-account operation id)');
+        if (i < calls.length - 1) await pollConfirm(c.check || (async () => true), sent, label + ` step ${i + 1}`);
+      }
+      await pollConfirm(finalCheck, sent, label);
+      return sent;
+    }
+    const lbIface = () => new ethers.Interface(lbAbi);
+    const lbRead = () => new ethers.Contract(leaderboardAddress, lbAbi, provider);
+
     // v5.0: Farcaster / Base mini-app SDK. ready() hides the client's splash screen; without it the
     // app can hang on the splash inside Farcaster/Base clients. Outside a mini-app host sdk stays null.
     let fcProvider = null;
@@ -387,7 +483,7 @@
         if (astMinted !== null) astDiv.append(line(astMinted > 0 ? `+${astMinted} AST minted` : 'No AST earned this round'));
         const btn = document.createElement('button');
         btn.id = 'add-ast-metamask';
-        btn.textContent = 'Add AST to MetaMask';
+        btn.textContent = 'Add AST to wallet';
         btn.style.cssText = 'margin-top:8px;padding:8px 16px;font-size:14px;background:#F7931A;color:#000;border:none;border-radius:8px;cursor:pointer;';
         btn.addEventListener('click', addASTToMetaMask);
         astDiv.append(btn);
@@ -760,6 +856,7 @@
           await withTimeout(eip1193.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }), 60000, 'Switch to Base');
         }
         // Static network: skip ethers' network auto-detection (another place that can stall).
+        walletEip1193 = eip1193; sendCallsSupported = null;
         provider = new ethers.BrowserProvider(eip1193, { chainId: 8453, name: 'base' }, { staticNetwork: true });
         userAddress = ethers.getAddress(accounts[0]);
         signer = await withTimeout(provider.getSigner(userAddress), 10000, 'getSigner');
@@ -809,7 +906,7 @@
         const msg = err?.code === 4001 ? 'Request rejected in wallet' : (err?.shortMessage || err?.message || String(err));
         button.innerText = prevText;
         button.disabled = false;
-        alert('Could not connect: ' + msg);
+        uiAlert('Could not connect: ' + msg);
       } finally {
         isConnecting = false;
       }
@@ -817,7 +914,7 @@
 
 let startButton = document.getElementById("start-game");
 startButton.addEventListener("click", async () => {
-  if (!userAddress) return alert("Connect wallet first");
+  if (!userAddress) return uiAlert("Connect wallet first");
 
   // Check lives first
   if (contractsConfigured && provider && userAddress) {
@@ -825,7 +922,7 @@ startButton.addEventListener("click", async () => {
       const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
       const onChainLives = Number(await c.playerLives(userAddress));
       if (onChainLives <= 0) {
-        return alert("You have 0 lives! Buy lives or claim daily/task life first.");
+        return uiAlert("You have 0 lives! Buy lives or claim daily/task life first.");
       }
       lives = onChainLives;
     } catch (e) {
@@ -833,9 +930,9 @@ startButton.addEventListener("click", async () => {
     }
   }
 
-  if (lives !== null && lives <= 0) return alert("No lives left! Buy more or complete tasks.");
+  if (lives !== null && lives <= 0) return uiAlert("No lives left! Buy more or complete tasks.");
 
-  if (!confirm(`Spend 1 life to start?\nLives remaining: ${lives === null ? 'unknown' : lives}`)) {
+  if (!(await uiConfirm(`Spend 1 life to start?\nLives remaining: ${lives === null ? 'unknown' : lives}`))) {
     startButton.disabled = false;
     return;
   }
@@ -848,9 +945,18 @@ startButton.addEventListener("click", async () => {
       const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
       startButton.innerText = 'Starting… confirm in wallet';
       currentGame = null;
-      const tx = useV2 ? await contract.startGame() : await contract.startGame(playerName);
-      const startReceipt = await waitForSuccess(tx);
-      if (useV2) currentGame = await openGameSession(contract, startReceipt);
+      if (useV2) {
+        const before = BigInt(await lbRead().gamesStarted(userAddress));
+        console.log('[start] gamesStarted before', before.toString());
+        await sendAndConfirm([{ to: leaderboardAddress, data: lbIface().encodeFunctionData('startGame', []) }],
+          async () => BigInt(await lbRead().gamesStarted(userAddress)) > before, 'Start game');
+        const gameId = BigInt(await lbRead().gamesStarted(userAddress));
+        console.log('[start] game id', gameId.toString());
+        startButton.innerText = 'Opening score session…';
+        currentGame = await openGameSession(gameId);
+      } else {
+        await waitForSuccess(await contract.startGame(playerName));
+      }
       startButton.innerText = 'Start Game';
 
       const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
@@ -890,31 +996,30 @@ startButton.addEventListener("click", async () => {
 
   } catch (err) {
     console.error('Start game error:', err);
-    alert('Failed to start (no life was spent unless the transaction confirmed): ' + shortError(err));
+    uiAlert('Failed to start (no life was spent unless the transaction confirmed): ' + shortError(err));
     startButton.innerText = 'Start Game';
     startButton.disabled = false;
     document.body.classList.remove('game-mode');
   }
 });
 
-    // v2: read the game id from the GameStarted event and get a backend session token for it.
-    async function openGameSession(contract, receipt) {
-      let gameId = null;
-      for (const log of receipt.logs || []) {
-        try {
-          const ev = contract.interface.parseLog(log);
-          if (ev?.name === 'GameStarted' && ev.args.player.toLowerCase() === userAddress.toLowerCase()) gameId = ev.args.gameId;
-        } catch (e) { /* not ours */ }
-      }
-      if (gameId === null) return null;
+    // v2: get a backend session token for an on-chain game id (retries: the server's RPC can lag a block or two).
+    async function openGameSession(gameId) {
       try {
-        const r = await fetch(ECONOMY.SESSION_API, {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ player: userAddress, gameId: gameId.toString() })
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-        return { gameId, session: j.session };
+        let lastErr;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const r = await withTimeout(fetch(ECONOMY.SESSION_API, {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ player: userAddress, gameId: gameId.toString() })
+          }), 15000, 'Score session request');
+          const j = await r.json().catch(() => ({}));
+          if (r.ok) { console.log('[start] session ok'); return { gameId, session: j.session }; }
+          lastErr = new Error(j.error || `HTTP ${r.status}`);
+          console.warn('[start] session attempt', attempt + 1, lastErr.message);
+          if (r.status !== 404 && r.status !== 429 && r.status < 500) break;
+          await sleep(2000);
+        }
+        throw lastErr;
       } catch (e) {
         console.warn('Session open failed; this score cannot be signed', e);
         showToast('⚠️ Score server unavailable: you can play, but this score may not be saved.', true);
@@ -929,7 +1034,7 @@ startButton.addEventListener("click", async () => {
 
     let buyInProgress = false;
     async function buyLives(amount, usdPrice) {
-      if (!signer) return alert("Connect first");
+      if (!signer) return uiAlert("Connect first");
       if (buyInProgress) return;
       buyInProgress = true;
       const buyButtons = ['buy-1', 'buy-10', 'buy-25', 'buy-50'].map(id => document.getElementById(id));
@@ -938,12 +1043,16 @@ startButton.addEventListener("click", async () => {
         // v5.0: removed the sdk.pay() branch (it sent USD to the board without crediting lives).
         // v1 legacy mode: no purchases, USDC sent to 0xEFd9 can never be withdrawn.
         if (!useV2) throw new Error(LEGACY_MSG);
-        showToast('⏳ Checking USDC allowance…');
-        await ensureUsdcAllowance(amount);
-        showToast('⏳ Buying lives… confirm in your wallet');
-        const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
-        const tx = await contract.buyLives(amount);
-        await waitForSuccess(tx);
+        showToast('⏳ Checking USDC…');
+        const { cost, needApprove } = await ensureUsdcAllowance(amount);
+        const livesBefore = BigInt(await lbRead().playerLives(userAddress));
+        const usdcRead = new ethers.Contract(usdcAddress, usdcAbi, provider);
+        const calls = [];
+        if (needApprove) calls.push({ to: usdcAddress, data: new ethers.Interface(usdcAbi).encodeFunctionData('approve', [leaderboardAddress, cost]),
+          check: async () => BigInt(await usdcRead.allowance(userAddress, leaderboardAddress)) >= cost });
+        calls.push({ to: leaderboardAddress, data: lbIface().encodeFunctionData('buyLives', [amount]) });
+        showToast(needApprove ? `⏳ Approve ${ethers.formatUnits(cost, 6)} USDC + buy ${amount} lives… confirm in your wallet` : '⏳ Buying lives… confirm in your wallet');
+        await sendAndConfirm(calls, async () => BigInt(await lbRead().playerLives(userAddress)) >= livesBefore + BigInt(amount), 'Buy lives');
         if (contractsConfigured) {
           const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
           lives = Number(await c.playerLives(userAddress));
@@ -951,10 +1060,10 @@ startButton.addEventListener("click", async () => {
         await updateTopBar();
         updatePrizePot();
         updateUsdcBalance();
-        alert(`✅ Purchase of ${amount} lives confirmed on-chain. Lives: ${lives === null ? 'refresh to see' : lives}`);
+        uiAlert(`✅ Purchase of ${amount} lives confirmed on-chain. Lives: ${lives === null ? 'refresh to see' : lives}`);
       } catch (err) {
         console.error("Buy lives error:", err);
-        alert("❌ Purchase failed, no lives were added: " + shortError(err));
+        uiAlert("❌ Purchase failed, no lives were added: " + shortError(err));
       } finally {
         buyInProgress = false;
         buyButtons.forEach(b => { if (b) b.disabled = false; });
@@ -978,11 +1087,11 @@ startButton.addEventListener("click", async () => {
         if (!r.ok) return { status: 'failed', error: `Score server: ${signed.error || 'HTTP ' + r.status}` };
         const token = new ethers.Contract(tokenAddress, tokenAbi, provider);
         const before = await token.balanceOf(userAddress).catch(() => null);
-        const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
-        const tx = await contract.submitScore(currentGame.gameId, signed.score, signed.name, signed.deadline, signed.signature);
+        const gid = BigInt(currentGame.gameId);
+        const data = lbIface().encodeFunctionData('submitScore', [gid, signed.score, signed.name, signed.deadline, signed.signature]);
         currentGame = null;
-        txHash = tx.hash;
-        await waitForSuccess(tx);
+        const sent = await sendAndConfirm([{ to: leaderboardAddress, data }], async () => (await lbRead().games(userAddress, gid)).submitted, 'Submit score');
+        txHash = sent.kind === 'tx' ? sent.id : null;
         let astMinted = null;
         if (before !== null) {
           const after = await token.balanceOf(userAddress).catch(() => null);
@@ -1067,12 +1176,8 @@ startButton.addEventListener("click", async () => {
       const balance = BigInt(await usdc.balanceOf(userAddress));
       if (balance < cost) throw new Error(`Not enough USDC: need ${ethers.formatUnits(cost, 6)}, have ${ethers.formatUnits(balance, 6)}`);
       const allowance = BigInt(await usdc.allowance(userAddress, leaderboardAddress));
-      if (allowance >= cost) return cost;
-      showToast(`⏳ Approve exactly ${ethers.formatUnits(cost, 6)} USDC in your wallet`);
-      const usdcWithSigner = new ethers.Contract(usdcAddress, ['function approve(address spender, uint256 amount) returns (bool)'], signer);
-      const tx = await usdcWithSigner.approve(leaderboardAddress, cost);
-      await waitForSuccess(tx);
-      return cost;
+      // Exact-amount approval is sent together with buyLives (one wallet_sendCalls batch when supported).
+      return { cost, needApprove: allowance < cost };
     }
 
     async function updateAstFacts() {
@@ -1123,9 +1228,9 @@ startButton.addEventListener("click", async () => {
     async function awardFreeLifeOnChain() {
       if (!signer || !contractsConfigured || !userAddress) throw new Error('Connect your wallet first');
       if (!useV2) throw new Error(LEGACY_MSG);
-      const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
-      const tx = await contract.claimDailyLives();
-      await waitForSuccess(tx);
+      const before = BigInt(await lbRead().nextDailyClaimAt(userAddress));
+      await sendAndConfirm([{ to: leaderboardAddress, data: lbIface().encodeFunctionData('claimDailyLives', []) }],
+        async () => BigInt(await lbRead().nextDailyClaimAt(userAddress)) > before, 'Claim daily life');
       const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
       lives = Number(await c.playerLives(userAddress));
       await updateTopBar();
@@ -1138,10 +1243,10 @@ startButton.addEventListener("click", async () => {
       try {
         await awardFreeLifeOnChain();
         await refreshDailyFromChain();
-        alert("✅ 1 free life confirmed on-chain!");
+        uiAlert("✅ 1 free life confirmed on-chain!");
       } catch (e) {
         console.error("On-chain daily award failed", e);
-        alert("❌ Free life NOT added (nothing was saved): " + shortError(e));
+        uiAlert("❌ Free life NOT added (nothing was saved): " + shortError(e));
       }
       updateDailyClaim();
     });
@@ -1156,7 +1261,7 @@ startButton.addEventListener("click", async () => {
           text: `Just scored ${n} in Asteroid Shooter on Base! 🚀 Can you beat me?`,
           embeds: [window.location.origin + '/']
         });
-        if (res?.cast) alert("Score shared!");
+        if (res?.cast) uiAlert("Score shared!");
       } catch (err) {
         fallback();
       }
@@ -1175,7 +1280,7 @@ startButton.addEventListener("click", async () => {
     });
 
     async function addASTToMetaMask() {
-      if (!window.ethereum) return alert("MetaMask not detected");
+      if (!window.ethereum) return uiAlert("No wallet detected");
       try {
         const added = await window.ethereum.request({
           method: 'wallet_watchAsset',
@@ -1188,20 +1293,20 @@ startButton.addEventListener("click", async () => {
             }
           }
         });
-        alert(added ? '✅ AST token added to your wallet' : 'AST token was not added');
+        uiAlert(added ? '✅ AST token added to your wallet' : 'AST token was not added');
       } catch (err) {
-        alert('Could not add token');
+        uiAlert('Could not add token');
       }
     }
 
     async function claimOneTimeTask(taskId, buttonId) {
       const completed = localStorage.getItem(`task_${taskId}_completed`);
       if (completed) {
-        alert("You've already claimed this task on this device.");
+        uiAlert("You've already claimed this task on this device.");
         return;
       }
       // v5.0: task rewards need backend-verified grants (claimLifeGrant), not built yet (ISSUES.md S5).
-      return alert(useV2 ? 'Task rewards are coming soon. Claim your daily free life meanwhile!' : LEGACY_MSG);
+      return uiAlert(useV2 ? 'Task rewards are coming soon. Claim your daily free life meanwhile!' : LEGACY_MSG);
       /* eslint-disable no-unreachable */
       const btn = document.getElementById(buttonId);
       if (btn) { btn.disabled = true; btn.innerText = 'Submitting…'; }
@@ -1209,11 +1314,11 @@ startButton.addEventListener("click", async () => {
         await awardFreeLifeOnChain();
         localStorage.setItem(`task_${taskId}_completed`, "true");
         if (btn) { btn.innerText = "Completed"; btn.style.opacity = "0.6"; }
-        alert("✅ 1 free life confirmed on-chain!");
+        uiAlert("✅ 1 free life confirmed on-chain!");
       } catch (e) {
         console.error("On-chain award failed", e);
         if (btn) { btn.innerText = 'Claim Life'; btn.disabled = false; }
-        alert("❌ Free life NOT added (nothing was saved): " + shortError(e));
+        uiAlert("❌ Free life NOT added (nothing was saved): " + shortError(e));
       }
     }
     // v4.64: wired here instead of inline onclick="" attributes (CSP-friendly)
