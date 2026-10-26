@@ -6,6 +6,7 @@
   <!-- Base app registry: paste the base.dev tag here, e.g. <meta name="base:app_id" content="..."> -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Asteroid Shooter</title>
+  <meta name="base:builder_code" content="bc_x7d37t77" />
   <meta name="description" content="Arcade asteroid shooter on Base with an onchain leaderboard." />
   <link rel="icon" href="/favicon.ico" sizes="256x256" type="image/x-icon" />
   <link rel="icon" type="image/png" sizes="32x32" href="https://asteroid-shooter-alpha.vercel.app/favicon-32.png" />
@@ -422,13 +423,29 @@
       throw new Error(`${label}: not confirmed after ${Math.round(timeoutMs / 60000)} min. Check your wallet activity, then refresh this page before retrying.`);
     }
     // calls: [{ to, data, check?: async () => bool }]; finalCheck confirms the whole action.
+    // Base Builder Code attribution (ERC-8021): bc_x7d37t77, encoded with ox Attribution.toDataSuffix.
+    // Appended to each call's calldata (contracts ignore trailing bytes); also offered to ERC-5792 wallets
+    // via the optional dataSuffix capability so smart-wallet userOps are attributed too.
+    const BUILDER_CODE_SUFFIX = '0x62635f78376433377437370b0080218021802180218021802180218021';
+    const withBuilderCode = (data) => (typeof data === 'string' && data.startsWith('0x') && !data.endsWith(BUILDER_CODE_SUFFIX.slice(2)))
+      ? data + BUILDER_CODE_SUFFIX.slice(2) : data;
     async function sendAndConfirm(calls, finalCheck, label) {
       if (!walletEip1193 || !userAddress) throw new Error('Connect your wallet first');
+      calls = calls.map((c) => ({ ...c, data: withBuilderCode(c.data) }));
       if (await supportsSendCalls()) {
         try {
           console.log('[tx]', label, 'via wallet_sendCalls', calls.length, 'call(s)');
-          const r = await withTimeout(walletEip1193.request({ method: 'wallet_sendCalls', params: [{ version: '2.0.0', chainId: '0x2105', from: userAddress,
-            atomicRequired: false, calls: calls.map((c) => ({ to: c.to, data: c.data, value: '0x0' })) }] }), 300000, label + ' (wallet approval)');
+          const base = { version: '2.0.0', chainId: '0x2105', from: userAddress, atomicRequired: false,
+            calls: calls.map((c) => ({ to: c.to, data: c.data, value: '0x0' })) };
+          let r;
+          try {
+            r = await withTimeout(walletEip1193.request({ method: 'wallet_sendCalls', params: [{ ...base,
+              capabilities: { dataSuffix: { value: BUILDER_CODE_SUFFIX, optional: true } } }] }), 300000, label + ' (wallet approval)');
+          } catch (capErr) {
+            if (!isUnsupportedErr(capErr) && !/capabilit/i.test(capErr?.message || '')) throw capErr;
+            console.warn('[tx] dataSuffix capability rejected, retrying without it', capErr?.message);
+            r = await withTimeout(walletEip1193.request({ method: 'wallet_sendCalls', params: [base] }), 300000, label + ' (wallet approval)');
+          }
           const sent = { kind: 'calls', id: typeof r === 'string' ? r : r?.id };
           console.log('[tx]', label, 'calls id', sent.id);
           await pollConfirm(finalCheck, sent, label);
