@@ -33,3 +33,12 @@ No secrets belong in this repo; see .gitignore.
 
 Note: since April 2026 the Base App treats apps as standard web apps and reads metadata from the Base.dev project,
 not from farcaster.json; the manifest is still used by Farcaster clients.
+
+## Base app / Coinbase Wallet bookmark icon and name
+The Base app (Coinbase Wallet) takes a site's bookmark icon and name from its base.dev app registry, keyed by the
+`<meta name="base:app_id" content="…">` tag (that is how the Accumulator app gets its icon). To enable it:
+1. base.dev → Register new app → name "Asteroid Shooter", icon = `icon.png` (1024×1024).
+2. Paste the generated `base:app_id` meta tag into `<head>` of index.html (server-rendered, as plain HTML), then deploy to production.
+3. base.dev → Verify & Add URL → `https://asteroid-shooter-alpha.vercel.app/`.
+4. Optionally add a matching `/.well-known/farcaster.json` `app` block with the same `base:app_id`.
+Then delete and re-add the bookmark.
