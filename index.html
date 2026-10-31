@@ -124,6 +124,13 @@
       #identity-bar { font-size: 0.8rem !important; }
       #game-container { min-height: 0 !important; }
     }
+    /* More apps strip: arcade pills, styled like the game's buttons. Data lives in MORE_APPS (script below). */
+    .more-apps { margin: 6px auto; text-align: center; font-size: 11px; }
+    .more-apps-label { color: #32FF9A; text-shadow: 0 0 6px #32FF9A; letter-spacing: .15em; text-transform: uppercase; font-size: 10px; margin-bottom: 3px; opacity: .8; }
+    .more-apps a { display: inline-flex; align-items: center; gap: 6px; margin: 2px 3px; padding: 3px 10px 3px 4px; border-radius: 999px; border: 1px solid var(--brand); background: linear-gradient(45deg, #0A0F2E, #111); color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; box-shadow: 0 0 6px var(--brand), 0 0 4px #F7931A inset; transition: all 0.3s; }
+    .more-apps a:hover { transform: scale(1.06); box-shadow: 0 0 14px var(--brand), 0 0 8px #F7931A, 0 0 10px #32FF9A inset; }
+    .more-apps img { width: 18px; height: 18px; flex: none; object-fit: cover; border-radius: 50%; background: var(--brand); }
+    body.game-mode #more-apps-home { display: none !important; }
   </style>
 </head>
 <body>
@@ -154,6 +161,7 @@
     <button id="connect-wallet">Connect Wallet</button>
     <button id="start-game" disabled>Start Game</button>
   </div>
+  <div class="more-apps" id="more-apps-home"></div>
 
   <div id="fee-info" style="display:none;">Production Build</div>
   <div id="prize-info">Monthly Prizes: 60% of buys to top 10 USDC + top 20 AST. Pot: <span id="pot-balance">0</span> USDC<span id="life-price-note"></span></div>
@@ -174,6 +182,7 @@
         <button id="share-base-btn" style="font-size:15px; padding:10px 30px; width: 200px; background: linear-gradient(45deg, #0A0F2E, #111); border: 2px solid #32FF9A; color:#32FF9A;">🚀 Share Score</button>
         <div style="display:flex; gap:8px;"><button id="share-fc-btn" style="font-size:13px; padding:8px 14px; background:#111; border:1px solid #8a63d2; color:#c9b3ff;">Farcaster</button><a id="share-x-btn" href="https://x.com/intent/post" target="_blank" rel="noopener noreferrer" role="button" style="display:inline-block; font-size:13px; padding:8px 14px; background:#111; border:1px solid #888; color:#eee; border-radius:6px; text-decoration:none; font-family:inherit;">Post on X</a></div>
       </div>
+      <div class="more-apps" id="more-apps-results"></div>
     </div>
   </div>
 
@@ -1724,6 +1733,23 @@ startButton.addEventListener("click", async () => {
     document.addEventListener('DOMContentLoaded', () => {
       loadCompletedTasks();
       updateDailyClaim();
+    });
+  </script>
+  <script>
+    // === More apps strip: edit app name/url/icon/color/pitch here (one line each) ===
+    const MORE_APPS = [
+      { name: 'Keep', url: 'https://keep-portfolios.vercel.app/', icon: 'https://keep-portfolios.vercel.app/icon-512.png', color: '#5b6478', pitch: 'Every wallet. One screen.' },
+      { name: 'Accumulator', url: 'https://accumulator-8.vercel.app', icon: 'https://accumulator-8.vercel.app/accumulator-logo.png.jpeg' /* portrait 832x1248; will move to /logo.png (square) later */, color: '#0052FF', pitch: 'A hands-off USDC bot on Base that buys BTC and ETH in uptrends and earns Aave interest while it waits.' },
+    ];
+    document.querySelectorAll('.more-apps').forEach(el => {
+      el.innerHTML = '<div class="more-apps-label">More apps</div>';
+      MORE_APPS.forEach(app => {
+        const a = document.createElement('a');
+        a.href = app.url; a.title = app.pitch; a.style.setProperty('--brand', app.color);
+        const img = document.createElement('img'); img.src = app.icon; img.alt = ''; img.loading = 'lazy';
+        a.append(img, document.createTextNode(app.name));
+        el.appendChild(a);
+      });
     });
   </script>
 </body>
