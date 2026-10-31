@@ -192,21 +192,21 @@
     <h3 style="color:#F7931A; text-shadow: 0 0 8px #F7931A;">Earn Free Lives (One-Time Tasks)</h3>
     <div style="margin: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 10px;">
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a href="https://x.com/kevinmm8222" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow @kevinmm8222 on X</a>
-        <button id="task-x">Claim Life</button>
+        <a data-ext href="https://x.com/kevinmm8222" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow @kevinmm8222 on X</a>
+        <button id="task-x">Coming soon</button>
       </div>
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a href="https://base.app/profile/kevinmmm.base.eth" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow kevinmmm.base.eth on Base App</a>
-        <button id="task-base">Claim Life</button>
+        <a data-ext href="https://base.app/profile/kevinmmm.base.eth" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow kevinmmm.base.eth on Base App</a>
+        <button id="task-base">Coming soon</button>
       </div>
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a href="https://accumulator-8.vercel.app/" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other mini app: Accumulator</a>
+        <a data-ext="miniapp" href="https://accumulator-8.vercel.app/" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other mini app: Accumulator</a>
         <button id="task-accumulator">Claim Life</button>
       </div>
     </div>
     <div style="margin-top: 16px; border-top: 1px solid #0052FF; padding-top: 12px;">
-      <button id="claim-daily">Claim Daily Life</button>
-      <span id="daily-timer" style="color:#F7931A;">Ready!</span>
+      <button id="claim-daily" disabled>Claim Daily Life</button>
+      <span id="daily-timer" style="color:#F7931A;">Connect wallet</span>
     </div>
   </div>
 
@@ -242,6 +242,7 @@
       LEADERBOARD_V2: "0xCcF3b3678f00f5AD8036897Cf17D0b5de67EfEca",
       SCORE_API: "/api/score",
       SESSION_API: "/api/session",
+      GRANT_API: "/api/grant",
       LEGACY_LEADERBOARD: "0xEFd9a0865306244d4F5227F0eBA2679Dd6d47E6A",
     };
     const useV2 = /^0x[a-fA-F0-9]{40}$/.test(ECONOMY.LEADERBOARD_V2);
@@ -276,6 +277,8 @@
       'function submitScore(uint256 gameId, uint256 score, string name, uint256 deadline, bytes signature)',
       'function buyLives(uint256 lives)',
       'function claimDailyLives()',
+      'function claimLifeGrant(uint256 amount, uint256 grantId, uint256 deadline, bytes signature)',
+      'function grantUsed(address, uint256) view returns (bool)',
       'function packPrice(uint256 lives) view returns (uint256)',
       'function nextDailyClaimAt(address player) view returns (uint256)',
       'function dailyCooldown() view returns (uint256)',
@@ -852,15 +855,6 @@
           updateLeaderboard();
         }
 
-        const returnBtn = document.getElementById('return-home-btn');
-        if (returnBtn) {
-          returnBtn.onclick = () => {
-            hideResultsOverlay();
-            exitPlayMode();
-            if (document.fullscreenElement) document.exitFullscreen();
-            document.getElementById('start-game').disabled = false;
-          };
-        }
       }
     }
 
@@ -1132,6 +1126,7 @@
         }
         await refreshDailyFromChain();
         updateDailyClaim();
+        refreshTasksFromChain();
       } catch (err) {
         console.error('[connect] error:', err);
         const msg = err?.code === 4001 ? 'Request rejected in wallet' : (err?.shortMessage || err?.message || String(err));
@@ -1499,6 +1494,7 @@ startButton.addEventListener("click", async () => {
       const btn = document.getElementById("claim-daily");
       const timer = document.getElementById("daily-timer");
       if (!useV2) { btn.disabled = true; timer.innerText = 'Paused during upgrade'; return; }
+      if (!userAddress) { btn.disabled = true; timer.innerText = 'Connect wallet'; return; }
       const timeLeft = nextDailyAtMs - now;
       if (timeLeft > 0) {
         btn.disabled = true;
@@ -1574,7 +1570,15 @@ startButton.addEventListener("click", async () => {
       }
       await copyShareLink(n);
     }
-    function openExternal(url) { const w = window.open(url, '_blank', 'noopener'); if (!w) location.href = url; }
+    // v5.11: window.open(..., 'noopener') always returns null, which also navigated the game tab away.
+    // In a mini-app host use sdk.actions.openUrl; elsewhere a new tab, falling back to same-tab only if blocked.
+    function miniOpenUrl() { const f = sdk?.actions?.openUrl; return window.__inMiniApp && typeof f === 'function' ? f : null; }
+    function openExternal(url) {
+      const openUrl = miniOpenUrl();
+      if (openUrl) { Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; }); return; }
+      const w = window.open(url, '_blank');
+      if (w) { try { w.opener = null; } catch (e) {} } else location.href = url;
+    }
     document.getElementById('share-fc-btn').addEventListener('click', () => {
       const n = Number(score) || 0;
       openExternal(`https://farcaster.xyz/~/compose?text=${encodeURIComponent(shareText(n))}&embeds[]=${encodeURIComponent(shareUrl())}`);
@@ -1592,6 +1596,12 @@ startButton.addEventListener("click", async () => {
       const url = xIntentUrl(); shareXEl.href = url;
       const n = Number(score) || 0; copyQuiet(shareText(n) + ' ' + shareUrl());
       const openUrl = sdk?.actions?.openUrl;
+      // v5.11: inside a mini-app host, open the x.com intent via openUrl (no twitter:// scheme).
+      if (window.__inMiniApp && typeof openUrl === 'function') {
+        ev.preventDefault();
+        Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
+        return;
+      }
       // v5.10: on phones try the X app scheme first (universal links don't fire from in-app webviews),
       // then fall back to the x.com intent if the page is still visible after ~1.2s.
       if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
@@ -1602,8 +1612,7 @@ startButton.addEventListener("click", async () => {
         window.addEventListener('pagehide', mark, { once: true });
         document.addEventListener('visibilitychange', mark, { once: true });
         try {
-          if (window.__inMiniApp && typeof openUrl === 'function') Promise.resolve().then(() => openUrl(appUrl)).catch(() => {});
-          else location.href = appUrl;
+          location.href = appUrl;
         } catch (e) {}
         setTimeout(() => {
           window.removeEventListener('pagehide', mark); document.removeEventListener('visibilitychange', mark);
@@ -1611,11 +1620,6 @@ startButton.addEventListener("click", async () => {
           if (window.__inMiniApp && typeof openUrl === 'function') Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
           else { const w = window.open(url, '_blank', 'noopener'); if (!w) location.href = url; }
         }, 1200);
-        return;
-      }
-      if (window.__inMiniApp && typeof openUrl === 'function') {
-        ev.preventDefault();
-        Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
         return;
       }
       // let the native anchor navigation happen; verify it did
@@ -1641,7 +1645,10 @@ startButton.addEventListener("click", async () => {
 
     document.getElementById("play-again-btn").addEventListener("click", () => {
       hideResultsOverlay();
-      document.getElementById("start-game").click();
+      // v5.11: Start Game stays disabled after a successful start, and .click() on a disabled button is a no-op.
+      const sb = document.getElementById("start-game");
+      sb.disabled = false;
+      sb.click();
     });
 
     function showManualAstImport(reason) {
@@ -1687,48 +1694,70 @@ startButton.addEventListener("click", async () => {
       }
     }
 
-    async function claimOneTimeTask(taskId, buttonId) {
-      const completed = localStorage.getItem(`task_${taskId}_completed`);
-      if (completed) {
-        uiAlert("You've already claimed this task on this device.");
-        return;
-      }
-      // v5.0: task rewards need backend-verified grants (claimLifeGrant), not built yet (ISSUES.md S5).
-      return uiAlert(useV2 ? 'Task rewards are coming soon. Claim your daily free life meanwhile!' : LEGACY_MSG);
-      /* eslint-disable no-unreachable */
+    // v5.11: task lives are LeaderboardV2.claimLifeGrant vouchers from /api/grant (server-side check, once per
+    // wallet per task, enforced on-chain by grantUsed). Only tasks with a real check are wired (see docs/TASK-VERIFICATION.md).
+    const TASK_KEYS = { 1: null, 2: null, 3: 'accumulator' };
+    function markTaskDone(buttonId) {
       const btn = document.getElementById(buttonId);
-      if (btn) { btn.disabled = true; btn.innerText = 'Submitting…'; }
+      if (btn) { btn.innerText = 'Completed'; btn.disabled = true; btn.style.opacity = '0.6'; }
+    }
+    async function claimOneTimeTask(taskId, buttonId) {
+      if (!useV2) return uiAlert(LEGACY_MSG);
+      const task = TASK_KEYS[taskId];
+      if (!task) return uiAlert("This task can't be verified automatically yet, so it has no reward for now. Claim your daily free life meanwhile!");
+      if (!signer || !userAddress) return uiAlert('Connect your wallet first (use the same wallet you use in Accumulator).');
+      const btn = document.getElementById(buttonId);
+      if (btn) { btn.disabled = true; btn.innerText = 'Checking…'; }
       try {
-        await awardFreeLifeOnChain();
-        localStorage.setItem(`task_${taskId}_completed`, "true");
-        if (btn) { btn.innerText = "Completed"; btn.style.opacity = "0.6"; }
-        uiAlert("✅ 1 free life confirmed on-chain!");
+        if (await lbRead().grantUsed(userAddress, taskId)) { markTaskDone(buttonId); return uiAlert("You've already claimed this task with this wallet."); }
+        const r = await withTimeout(fetch(ECONOMY.GRANT_API, { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ player: userAddress, task }) }), 20000, 'Task check');
+        const g = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(g.error || `HTTP ${r.status}`);
+        if (btn) btn.innerText = 'Confirm in wallet…';
+        const livesBefore = BigInt(await lbRead().playerLives(userAddress));
+        await sendAndConfirm([{ to: leaderboardAddress, data: lbIface().encodeFunctionData('claimLifeGrant', [g.amount, g.grantId, g.deadline, g.signature]) }],
+          async () => BigInt(await lbRead().grantUsed(userAddress, taskId)), 'Claim task life');
+        lives = Number(await lbRead().playerLives(userAddress));
+        await updateTopBar();
+        markTaskDone(buttonId);
+        uiAlert(`✅ ${Number(BigInt(lives) - livesBefore) || 1} free life confirmed on-chain!`);
       } catch (e) {
-        console.error("On-chain award failed", e);
+        console.error('Task claim failed', e);
         if (btn) { btn.innerText = 'Claim Life'; btn.disabled = false; }
-        uiAlert("❌ Free life NOT added (nothing was saved): " + shortError(e));
+        uiAlert('❌ Free life NOT added (nothing was saved): ' + shortError(e));
       }
     }
+    async function refreshTasksFromChain() {
+      if (!useV2 || !provider || !userAddress) return;
+      for (const [id, btnId] of [[1, 'task-x'], [2, 'task-base'], [3, 'task-accumulator']]) {
+        try { if (await lbRead().grantUsed(userAddress, id)) markTaskDone(btnId); } catch (e) {}
+      }
+    }
+    // v5.11: outbound links. Normal browsers keep the link's own behaviour (new tab for follow links, same tab
+    // for More apps). Inside a Base / Farcaster mini-app host, webviews block or trap these, so use the SDK.
+    document.addEventListener('click', (ev) => {
+      const a = ev.target.closest && ev.target.closest('a[data-ext]');
+      if (!a || !window.__inMiniApp || !sdk?.actions) return;
+      const url = a.href;
+      const openMini = sdk.actions.openMiniApp, openUrl = sdk.actions.openUrl;
+      if (a.dataset.ext === 'miniapp' && typeof openMini === 'function') {
+        ev.preventDefault();
+        Promise.resolve().then(() => openMini({ url })).catch(() => (typeof openUrl === 'function' ? openUrl(url) : (location.href = url)));
+      } else if (typeof openUrl === 'function') {
+        ev.preventDefault();
+        Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
+      }
+    });
+
     // v4.64: wired here instead of inline onclick="" attributes (CSP-friendly)
     [[1, 'task-x'], [2, 'task-base'], [3, 'task-accumulator']].forEach(([id, btnId]) => {
       const b = document.getElementById(btnId);
       if (b) b.addEventListener('click', () => claimOneTimeTask(id, btnId));
     });
 
-    function loadCompletedTasks() {
-      [1, 2, 3].forEach(taskId => {
-        const completed = localStorage.getItem(`task_${taskId}_completed`);
-        if (completed) {
-          let buttonId = taskId === 1 ? "task-x" : taskId === 2 ? "task-base" : "task-accumulator";
-          const btn = document.getElementById(buttonId);
-          if (btn) {
-            btn.innerText = "Completed";
-            btn.disabled = true;
-            btn.style.opacity = "0.6";
-          }
-        }
-      });
-    }
+    // v5.11: task completion now comes from the chain (grantUsed) after connect, not localStorage.
+    function loadCompletedTasks() {}
 
     document.addEventListener('DOMContentLoaded', () => {
       loadCompletedTasks();
@@ -1739,13 +1768,13 @@ startButton.addEventListener("click", async () => {
     // === More apps strip: edit app name/url/icon/color/pitch here (one line each) ===
     const MORE_APPS = [
       { name: 'Keep', url: 'https://keep-portfolios.vercel.app/', icon: 'https://keep-portfolios.vercel.app/icon-512.png', color: '#5b6478', pitch: 'Every wallet. One screen.' },
-      { name: 'Accumulator', url: 'https://accumulator-8.vercel.app', icon: 'https://accumulator-8.vercel.app/logo.png' /* square 512x512 */, color: '#0052FF', pitch: 'A hands-off USDC bot on Base that buys BTC and ETH in uptrends and earns Aave interest while it waits.' },
+      { name: 'Accumulator', miniApp: true, url: 'https://accumulator-8.vercel.app', icon: 'https://accumulator-8.vercel.app/logo.png' /* square 512x512 */, color: '#0052FF', pitch: 'A hands-off USDC bot on Base that buys BTC and ETH in uptrends and earns Aave interest while it waits.' },
     ];
     document.querySelectorAll('.more-apps').forEach(el => {
       el.innerHTML = '<div class="more-apps-label">More apps</div>';
       MORE_APPS.forEach(app => {
         const a = document.createElement('a');
-        a.href = app.url; a.title = app.pitch; a.style.setProperty('--brand', app.color);
+        a.href = app.url; a.title = app.pitch; a.dataset.ext = app.miniApp ? 'miniapp' : ''; a.style.setProperty('--brand', app.color);
         const img = document.createElement('img'); img.src = app.icon; img.alt = ''; img.loading = 'lazy';
         a.append(img, document.createTextNode(app.name));
         el.appendChild(a);
