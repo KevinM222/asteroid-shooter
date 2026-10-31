@@ -1,9 +1,9 @@
-// POST /api/grant { player, task } -> { amount, grantId, deadline, signature } for LeaderboardV2.claimLifeGrant.
+// POST /api/grant { player, task, ticket? } (or { player, task, action: "start" } for click-through tasks) -> { amount, grantId, deadline, signature } for LeaderboardV2.claimLifeGrant.
 // Uses the existing SCORE_SIGNER_PRIVATE_KEY / LEADERBOARD_V2_ADDRESS env vars (the contract checks grants
 // against scoreSigner). No new secrets. Once per wallet per task is enforced on-chain (grantUsed).
 import { getAddress, isAddress } from "ethers";
 import { loadConfig, RejectError } from "../server/signer.js";
-import { signGrant } from "../server/grant.js";
+import { signGrant, startClickTask } from "../server/grant.js";
 import { getStore, limit, clientIp } from "../server/guards.js";
 import { cors } from "../server/http.js";
 
@@ -17,7 +17,9 @@ export default async function handler(req, res) {
     const store = getStore();
     await limit(store, `grant:ip:${clientIp(req)}`, 10, 60);
     await limit(store, `grant:p:${player}`, 5, 60);
-    const out = await signGrant({ player, task: String(body.task || "") }, cfg);
+    const task = String(body.task || "");
+    if (body.action === "start") return res.status(200).json(startClickTask({ player, task }, cfg));
+    const out = await signGrant({ player, task, ticket: body.ticket ? String(body.ticket) : undefined }, cfg);
     return res.status(200).json(out);
   } catch (e) {
     const status = e instanceof RejectError ? e.status : 500;

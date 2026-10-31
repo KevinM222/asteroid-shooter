@@ -192,16 +192,16 @@
     <h3 style="color:#F7931A; text-shadow: 0 0 8px #F7931A;">Earn Free Lives (One-Time Tasks)</h3>
     <div style="margin: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 10px;">
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a data-ext href="https://x.com/kevinmm8222" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow @kevinmm8222 on X</a>
-        <button id="task-x">Coming soon</button>
-      </div>
-      <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a data-ext href="https://base.app/profile/kevinmmm.base.eth" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow kevinmmm.base.eth on Base App</a>
-        <button id="task-base">Coming soon</button>
+        <a data-ext data-task="1" href="https://x.com/kevinmm8222" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow @kevinmm8222 on X</a>
+        <button id="task-x">Claim Life</button>
       </div>
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
         <a data-ext="miniapp" href="https://accumulator-8.vercel.app/" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other mini app: Accumulator</a>
         <button id="task-accumulator">Claim Life</button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
+        <a data-ext="miniapp" data-task="4" href="https://keep-portfolios.vercel.app/" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other app: Keep</a>
+        <button id="task-keep">Claim Life</button>
       </div>
     </div>
     <div style="margin-top: 16px; border-top: 1px solid #0052FF; padding-top: 12px;">
@@ -406,7 +406,11 @@
       if (sendCallsSupported !== null) return sendCallsSupported;
       try {
         const caps = await withTimeout(walletEip1193.request({ method: 'wallet_getCapabilities', params: [userAddress, ['0x2105']] }), 5000, 'wallet_getCapabilities');
-        sendCallsSupported = !!caps;
+        // v5.12: a non-empty answer is NOT enough. EOA wallets (MetaMask, Coinbase Wallet extension, Rabby) answer
+        // wallet_getCapabilities but then reject wallet_sendCalls (or ask to "upgrade" the account). Only use it when
+        // Base (0x2105) reports atomic batching as already "supported" (Base app / Coinbase Smart Wallet).
+        const c = caps && (caps['0x2105'] || caps['0x2105'.toLowerCase()] || caps[8453] || caps['8453']);
+        sendCallsSupported = !!(c && c.atomic && c.atomic.status === 'supported');
       } catch (e) { sendCallsSupported = false; }
       console.log('[tx] wallet_sendCalls supported:', sendCallsSupported);
       return sendCallsSupported;
@@ -419,7 +423,7 @@
           if ((code >= 400 && code < 700) || /fail|revert/i.test(String(st?.status))) return true;
           if ((st?.receipts || []).some((r) => r.status === '0x0' || r.status === 0)) return true;
         } else if (/^0x[0-9a-fA-F]{64}$/.test(String(sent.id))) {
-          const rc = await provider.getTransactionReceipt(sent.id).catch(() => null);
+          const rc = await readProvider().getTransactionReceipt(sent.id).catch(() => null);
           if (rc && rc.status === 0) return true; // a real tx hash that reverted
         }
       } catch (e) { /* status unknown; keep reading the chain */ }
@@ -441,6 +445,20 @@
     const BUILDER_CODE_SUFFIX = '0x62635f78376433377437370b0080218021802180218021802180218021';
     const withBuilderCode = (data) => (typeof data === 'string' && data.startsWith('0x') && !data.endsWith(BUILDER_CODE_SUFFIX.slice(2)))
       ? data + BUILDER_CODE_SUFFIX.slice(2) : data;
+    // v5.12: browser wallets can be on another chain (or be switched after connect). Make sure every tx goes to
+    // Base, adding the chain if the wallet doesn't know it (MetaMask 4902).
+    async function ensureBase(eth) {
+      const cur = await withTimeout(eth.request({ method: 'eth_chainId' }), 10000, 'eth_chainId').catch(() => null);
+      if (cur !== null && Number(cur) === 8453) return;
+      try {
+        await withTimeout(eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x2105' }] }), 60000, 'Switch to Base');
+      } catch (e) {
+        if (e?.code !== 4902 && !/unrecognized|not been added|unknown chain/i.test(String(e?.message))) throw e;
+        await withTimeout(eth.request({ method: 'wallet_addEthereumChain', params: [{ chainId: '0x2105', chainName: 'Base',
+          nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['https://mainnet.base.org'],
+          blockExplorerUrls: ['https://basescan.org'] }] }), 60000, 'Add Base');
+      }
+    }
     async function sendAndConfirm(calls, finalCheck, label) {
       if (!walletEip1193 || !userAddress) throw new Error('Connect your wallet first');
       calls = calls.map((c) => ({ ...c, data: withBuilderCode(c.data) }));
@@ -463,11 +481,14 @@
           await pollConfirm(finalCheck, sent, label);
           return sent;
         } catch (e) {
-          if (!isUnsupportedErr(e)) throw e;
-          console.warn('[tx] wallet_sendCalls unsupported, falling back', e?.message);
+          // Only a user rejection or an on-chain failure is final; any other wallet_sendCalls error (5700/5710/5750,
+          // -32602 bad params, ...) falls back to a plain eth_sendTransaction that every EOA wallet supports.
+          if (e?.code === 4001 || /failed on-chain|not confirmed after/.test(String(e?.message))) throw e;
+          console.warn('[tx] wallet_sendCalls failed, falling back to eth_sendTransaction', e?.code, e?.message);
           sendCallsSupported = false;
         }
       }
+      await ensureBase(walletEip1193);
       let sent = null;
       for (let i = 0; i < calls.length; i++) {
         const c = calls[i];
@@ -481,7 +502,10 @@
       return sent;
     }
     const lbIface = () => new ethers.Interface(lbAbi);
-    const lbRead = () => new ethers.Contract(leaderboardAddress, lbAbi, provider);
+    // v5.12: reads that confirm a tx go to Base directly, never through the wallet's (possibly other-chain) RPC.
+    let baseRead = null;
+    const readProvider = () => (baseRead ||= new ethers.JsonRpcProvider('https://mainnet.base.org', { chainId: 8453, name: 'base' }, { staticNetwork: true }));
+    const lbRead = () => new ethers.Contract(leaderboardAddress, lbAbi, readProvider());
 
     // v5.0: Farcaster / Base mini-app SDK. ready() hides the client's splash screen; without it the
     // app can hang on the splash inside Farcaster/Base clients. Outside a mini-app host sdk stays null.
@@ -511,6 +535,10 @@
       }
     }
     const sdkReady = initSdk();
+    // v5.12: EIP-6963 wallet discovery for browsers where wallets don't set window.ethereum.
+    const eip6963 = [];
+    window.addEventListener('eip6963:announceProvider', (ev) => { if (ev.detail?.provider && !eip6963.some((w) => w.provider === ev.detail.provider)) eip6963.push(ev.detail); });
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
 
     let gameplayActive = false;
     let gameEnded = true;       // v5.9: gameOver/submit run once per game
@@ -1066,8 +1094,8 @@
         console.log('[connect] start');
         await withTimeout(sdkReady, 4000, 'mini-app SDK init').catch((e) => console.warn('[connect]', e.message));
         // Prefer the injected wallet (Base app / Coinbase / MetaMask); the mini-app provider is the fallback.
-        const eip1193 = window.ethereum || fcProvider;
-        console.log('[connect] provider:', window.ethereum ? 'window.ethereum' : fcProvider ? 'mini-app SDK' : 'none');
+        const eip1193 = window.ethereum || eip6963[0]?.provider || fcProvider;
+        console.log('[connect] provider:', window.ethereum ? 'window.ethereum' : eip6963[0] ? 'EIP-6963 ' + eip6963[0].info?.name : fcProvider ? 'mini-app SDK' : 'none');
         if (!eip1193) throw new Error('No wallet found. Open this page in the Base app browser or a wallet browser.');
         button.innerText = 'Approve in wallet...';
         const accounts = await withTimeout(eip1193.request({ method: "eth_requestAccounts" }), 120000, 'Wallet connection request');
@@ -1077,7 +1105,7 @@
         console.log('[connect] chainId', net);
         if (Number(net) !== 8453) {
           button.innerText = 'Switch to Base in wallet...';
-          await withTimeout(eip1193.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }), 60000, 'Switch to Base');
+          await ensureBase(eip1193);
         }
         // Static network: skip ethers' network auto-detection (another place that can stall).
         walletEip1193 = eip1193; sendCallsSupported = null;
@@ -1696,7 +1724,41 @@ startButton.addEventListener("click", async () => {
 
     // v5.11: task lives are LeaderboardV2.claimLifeGrant vouchers from /api/grant (server-side check, once per
     // wallet per task, enforced on-chain by grantUsed). Only tasks with a real check are wired (see docs/TASK-VERIFICATION.md).
-    const TASK_KEYS = { 1: null, 2: null, 3: 'accumulator' };
+    // grantId 2 (old Base App follow) is retired. 1 (X) and 4 (Keep) are click-through: opening the link gets a
+    // server ticket that /api/grant redeems after ~10 s. 3 (Accumulator) is verified against Accumulator's API.
+    const TASK_KEYS = { 1: 'x', 3: 'accumulator', 4: 'keep' };
+    const CLICK_TASKS = { 1: true, 4: true };
+    const clickTickets = {}; // `${address}:${taskId}` -> { ticket, readyAt }
+    const ticketKey = (id) => `${userAddress}:${id}`;
+    async function startClickTicket(taskId) {
+      if (!userAddress || !CLICK_TASKS[taskId]) return null;
+      const cur = clickTickets[ticketKey(taskId)];
+      if (cur) return cur;
+      try {
+        const r = await withTimeout(fetch(ECONOMY.GRANT_API, { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ player: userAddress, task: TASK_KEYS[taskId], action: 'start' }) }), 15000, 'Task start');
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ticket) throw new Error(j.error || `HTTP ${r.status}`);
+        const t = { ticket: j.ticket, readyAt: Date.now() + (Number(j.waitSeconds) || 10) * 1000 + 1500 };
+        clickTickets[ticketKey(taskId)] = t;
+        return t;
+      } catch (e) { console.warn('[task] start failed', e?.message); return null; }
+    }
+    function countdown(taskId, buttonId) {
+      const btn = document.getElementById(buttonId), t = clickTickets[ticketKey(taskId)];
+      if (!btn || !t || btn.innerText === 'Completed') return;
+      const left = Math.ceil((t.readyAt - Date.now()) / 1000);
+      if (left > 0) { btn.disabled = true; btn.innerText = `Claim in ${left}s`; setTimeout(() => countdown(taskId, buttonId), 1000); }
+      else { btn.disabled = false; btn.innerText = 'Claim Life'; }
+    }
+    // Opening the X / Keep link (directly, or via the Claim button) starts that task's ticket.
+    document.addEventListener('click', (ev) => {
+      const a = ev.target.closest && ev.target.closest('a[data-task]');
+      if (!a || !userAddress) return;
+      const id = Number(a.dataset.task), btnId = TASK_BUTTONS.find(([i]) => i === id)?.[1];
+      startClickTicket(id).then((t) => { if (t) countdown(id, btnId); });
+    });
+    const TASK_BUTTONS = [[1, 'task-x'], [3, 'task-accumulator'], [4, 'task-keep']];
     function markTaskDone(buttonId) {
       const btn = document.getElementById(buttonId);
       if (btn) { btn.innerText = 'Completed'; btn.disabled = true; btn.style.opacity = '0.6'; }
@@ -1705,13 +1767,21 @@ startButton.addEventListener("click", async () => {
       if (!useV2) return uiAlert(LEGACY_MSG);
       const task = TASK_KEYS[taskId];
       if (!task) return uiAlert("This task can't be verified automatically yet, so it has no reward for now. Claim your daily free life meanwhile!");
-      if (!signer || !userAddress) return uiAlert('Connect your wallet first (use the same wallet you use in Accumulator).');
+      if (!signer || !userAddress) return uiAlert('Connect your wallet first (use the same wallet you used in that app).');
       const btn = document.getElementById(buttonId);
+      if (CLICK_TASKS[taskId] && !clickTickets[ticketKey(taskId)]) {
+        // First tap: open the link (synchronously, inside the tap, so popups/openUrl are allowed), then count down.
+        const a = document.querySelector(`a[data-task="${taskId}"]`);
+        if (a) a.click(); else startClickTicket(taskId).then(() => countdown(taskId, buttonId));
+        if (btn) { btn.disabled = true; btn.innerText = 'Opening…'; }
+        return;
+      }
+      if (CLICK_TASKS[taskId] && clickTickets[ticketKey(taskId)].readyAt > Date.now()) return countdown(taskId, buttonId);
       if (btn) { btn.disabled = true; btn.innerText = 'Checking…'; }
       try {
         if (await lbRead().grantUsed(userAddress, taskId)) { markTaskDone(buttonId); return uiAlert("You've already claimed this task with this wallet."); }
         const r = await withTimeout(fetch(ECONOMY.GRANT_API, { method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ player: userAddress, task }) }), 20000, 'Task check');
+          body: JSON.stringify({ player: userAddress, task, ticket: clickTickets[ticketKey(taskId)]?.ticket }) }), 20000, 'Task check');
         const g = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(g.error || `HTTP ${r.status}`);
         if (btn) btn.innerText = 'Confirm in wallet…';
@@ -1724,13 +1794,14 @@ startButton.addEventListener("click", async () => {
         uiAlert(`✅ ${Number(BigInt(lives) - livesBefore) || 1} free life confirmed on-chain!`);
       } catch (e) {
         console.error('Task claim failed', e);
+        if (/open the link|expired|invalid ticket/i.test(String(e?.message))) delete clickTickets[ticketKey(taskId)];
         if (btn) { btn.innerText = 'Claim Life'; btn.disabled = false; }
         uiAlert('❌ Free life NOT added (nothing was saved): ' + shortError(e));
       }
     }
     async function refreshTasksFromChain() {
       if (!useV2 || !provider || !userAddress) return;
-      for (const [id, btnId] of [[1, 'task-x'], [2, 'task-base'], [3, 'task-accumulator']]) {
+      for (const [id, btnId] of TASK_BUTTONS) {
         try { if (await lbRead().grantUsed(userAddress, id)) markTaskDone(btnId); } catch (e) {}
       }
     }
@@ -1751,7 +1822,7 @@ startButton.addEventListener("click", async () => {
     });
 
     // v4.64: wired here instead of inline onclick="" attributes (CSP-friendly)
-    [[1, 'task-x'], [2, 'task-base'], [3, 'task-accumulator']].forEach(([id, btnId]) => {
+    TASK_BUTTONS.forEach(([id, btnId]) => {
       const b = document.getElementById(btnId);
       if (b) b.addEventListener('click', () => claimOneTimeTask(id, btnId));
     });
