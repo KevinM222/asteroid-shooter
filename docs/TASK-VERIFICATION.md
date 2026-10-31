@@ -14,14 +14,7 @@ The contract takes any `uint256` grantId, so new tasks need no contract change.
 |---|---|---|---|
 | Try Accumulator | 3 | **Live, verified** | Accumulator's public `GET https://accumulator-8.vercel.app/api/status?address=<player>` must return `botWalletExists: true` (a bot wallet exists only after the player signed "Start" with that wallet). |
 | Follow on X | 1 | **Live, click-through** | A follow can't be checked without a paid X API tier + X OAuth. Opening the link calls `/api/grant { action: "start" }`, which returns a ticket (HMAC keyed from the signer key, bound to chain, contract, player and task, with a timestamp). The voucher is signed only when the ticket is ≥ 10 s and ≤ 1 h old. Honor system: it proves the link was opened, not the follow. |
-| Try Keep | 4 | **Live, click-through** | Same click-through as X. Keep (keep-portfolios.vercel.app) keeps holdings on the device and has no public per-wallet endpoint (`/api/status`, `/api/portfolio`, `/api/wallet` all 404; its only server calls are internal TanStack server functions). |
-
-### Making Keep verified later
-Keep would need to add a public, read-only, CORS-free (server-to-server) endpoint such as
-`GET https://keep-portfolios.vercel.app/api/status?address=<0x…>` → `{ "address": "0x…", "used": true, "firstSeenAt": 1730000000 }`
-that returns `used: true` only after that wallet signed in to Keep (e.g. a SIWE / signed message, so nobody can mark someone
-else's address). Then set `keep: { grantId: 4n, lives: 1n, verify: verifyKeep }` in server/grant.js (copy `verifyAccumulator`),
-and drop `4` from `CLICK_TASKS` in index.html. No contract change.
+| Try Keep | 4 | **Live, verified** | Keep's public `GET https://keep-portfolios.vercel.app/api/status?address=<player>` (server-side; no CORS, `no-store`) must return `200 {"used": true}`. `used` turns true only after the wallet signs Keep's confirm message. `used: false` → 403 "open Keep, connect this same wallet and sign the confirm message there". 429 / 503 / any other error or malformed body → 503 "try again later", no voucher. |
 
 ### Wallets
 Transactions use EIP-5792 `wallet_sendCalls` only when the wallet reports Base `atomic.status === "supported"` (Base app /

@@ -200,7 +200,7 @@
         <button id="task-accumulator">Claim Life</button>
       </div>
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a data-ext="miniapp" data-task="4" href="https://keep-portfolios.vercel.app/" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other app: Keep</a>
+        <a data-ext="miniapp" href="https://keep-portfolios.vercel.app/" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other app: Keep</a>
         <button id="task-keep">Claim Life</button>
       </div>
     </div>
@@ -1724,10 +1724,10 @@ startButton.addEventListener("click", async () => {
 
     // v5.11: task lives are LeaderboardV2.claimLifeGrant vouchers from /api/grant (server-side check, once per
     // wallet per task, enforced on-chain by grantUsed). Only tasks with a real check are wired (see docs/TASK-VERIFICATION.md).
-    // grantId 2 (old Base App follow) is retired. 1 (X) and 4 (Keep) are click-through: opening the link gets a
-    // server ticket that /api/grant redeems after ~10 s. 3 (Accumulator) is verified against Accumulator's API.
+    // grantId 2 (old Base App follow) is retired. 1 (X) is click-through: opening the link gets a server ticket that
+    // /api/grant redeems after ~10 s. 3 (Accumulator) and 4 (Keep) are verified server-side against each app's status API.
     const TASK_KEYS = { 1: 'x', 3: 'accumulator', 4: 'keep' };
-    const CLICK_TASKS = { 1: true, 4: true };
+    const CLICK_TASKS = { 1: true };
     const clickTickets = {}; // `${address}:${taskId}` -> { ticket, readyAt }
     const ticketKey = (id) => `${userAddress}:${id}`;
     async function startClickTicket(taskId) {

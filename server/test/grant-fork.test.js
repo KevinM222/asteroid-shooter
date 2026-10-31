@@ -41,7 +41,7 @@ test("accumulator task grant on a Base fork: +1 life, once per wallet", { skip: 
   await assert.rejects(new Contract(LB, abi, other).claimLifeGrant(g.amount, g.grantId, g.deadline, g.signature));
 });
 
-test("X (1) and Keep (4) click-through grants on a Base fork: contract accepts any grantId, once per wallet per task", { skip: !RPC }, async () => {
+test("X (1) click-through and Keep (4) verified grants on a Base fork: contract accepts any grantId, once per wallet per task", { skip: !RPC }, async () => {
   const { startClickTask } = await import("../grant.js");
   const provider = new JsonRpcProvider(RPC, 8453, { staticNetwork: true });
   const abi = ["function owner() view returns (address)", "function setScoreSigner(address)", "function playerLives(address) view returns (uint256)",
@@ -58,17 +58,26 @@ test("X (1) and Keep (4) click-through grants on a Base fork: contract accepts a
   const cfg = (now) => ({ provider, wallet: signerWallet, leaderboard: LB, chainId: 8453, now });
   for (const [task, id] of [["x", 1n], ["keep", 4n]]) {
     assert.equal(await lb.grantUsed(player.address, id), false);
-    await assert.rejects(signGrant({ player: player.address, task }, cfg(t0)), /open the link first/);
-    const { ticket } = startClickTask({ player: player.address, task }, cfg(t0));
-    await assert.rejects(signGrant({ player: player.address, task, ticket }, cfg(t0 + 3)), /try again in/);
+    let ticket, deps = {};
+    if (task === "x") {
+      await assert.rejects(signGrant({ player: player.address, task }, cfg(t0)), /open the link first/);
+      ({ ticket } = startClickTask({ player: player.address, task }, cfg(t0)));
+      await assert.rejects(signGrant({ player: player.address, task, ticket }, cfg(t0 + 3)), /try again in/);
+    } else {
+      const keepApi = (status, body) => async () => ({ ok: status === 200, status, json: async () => body });
+      await assert.rejects(signGrant({ player: player.address, task }, cfg(t0), { fetchImpl: keepApi(200, { used: false, firstSeenAt: null }) }), /hasn't used Keep/);
+      await assert.rejects(signGrant({ player: player.address, task }, cfg(t0), { fetchImpl: keepApi(429, {}) }), /try again later/);
+      await assert.rejects(signGrant({ player: player.address, task }, cfg(t0), { fetchImpl: keepApi(503, {}) }), /try again later/);
+      deps = { fetchImpl: keepApi(200, { used: true, firstSeenAt: Date.now() }) };
+    }
     const before = await lb.playerLives(player.address);
-    const g = await signGrant({ player: player.address, task, ticket }, cfg(t0 + 11));
+    const g = await signGrant({ player: player.address, task, ticket }, cfg(t0 + 11), deps);
     assert.equal(g.grantId, id.toString());
     const nonce = id === 1n ? 0 : 1; // fresh wallet; explicit nonces avoid ethers caching a stale count on anvil
     await (await lb.claimLifeGrant(g.amount, g.grantId, g.deadline, g.signature, { nonce })).wait();
     assert.equal(await lb.playerLives(player.address), before + 1n);
     assert.equal(await lb.grantUsed(player.address, id), true);
-    await assert.rejects(signGrant({ player: player.address, task, ticket }, cfg(t0 + 12)), /already claimed/);
+    await assert.rejects(signGrant({ player: player.address, task, ticket }, cfg(t0 + 12), deps), /already claimed/);
     await assert.rejects(lb.claimLifeGrant(g.amount, g.grantId, g.deadline, g.signature)); // GrantUsed on-chain
   }
   // Keep (4) is independent of the retired Base App id (2) and of Accumulator (3)
