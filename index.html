@@ -129,7 +129,7 @@
     .more-apps-label { color: #32FF9A; text-shadow: 0 0 6px #32FF9A; letter-spacing: .15em; text-transform: uppercase; font-size: 10px; margin-bottom: 3px; opacity: .8; }
     .more-apps a { display: inline-flex; align-items: center; gap: 6px; margin: 2px 3px; padding: 3px 10px 3px 4px; border-radius: 999px; border: 1px solid var(--brand); background: linear-gradient(45deg, #0A0F2E, #111); color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; box-shadow: 0 0 6px var(--brand), 0 0 4px #F7931A inset; transition: all 0.3s; }
     .more-apps a:hover { transform: scale(1.06); box-shadow: 0 0 14px var(--brand), 0 0 8px #F7931A, 0 0 10px #32FF9A inset; }
-    .more-apps img { width: 18px; height: 18px; border-radius: 50%; background: var(--brand); }
+    .more-apps img { width: 18px; height: 18px; flex: none; object-fit: cover; border-radius: 50%; background: var(--brand); }
     body.game-mode #more-apps-home { display: none !important; }
   </style>
 </head>
@@ -1739,7 +1739,7 @@ startButton.addEventListener("click", async () => {
     // === More apps strip: edit app name/url/icon/color/pitch here (one line each) ===
     const MORE_APPS = [
       { name: 'Keep', url: 'https://keep-portfolios.vercel.app/', icon: 'https://keep-portfolios.vercel.app/icon-512.png', color: '#5b6478', pitch: 'Every wallet. One screen.' },
-      { name: 'Accumulator', url: 'https://accumulator-8.vercel.app', icon: 'https://accumulator-8.vercel.app/favicon.ico', color: '#0052FF', pitch: 'A hands-off USDC bot on Base that buys BTC and ETH in uptrends and earns Aave interest while it waits.' },
+      { name: 'Accumulator', url: 'https://accumulator-8.vercel.app', icon: 'https://accumulator-8.vercel.app/accumulator-logo.png.jpeg' /* portrait 832x1248; will move to /logo.png (square) later */, color: '#0052FF', pitch: 'A hands-off USDC bot on Base that buys BTC and ETH in uptrends and earns Aave interest while it waits.' },
     ];
     document.querySelectorAll('.more-apps').forEach(el => {
       el.innerHTML = '<div class="more-apps-label">More apps</div>';
