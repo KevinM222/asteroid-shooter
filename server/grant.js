@@ -12,20 +12,21 @@ export const GRANT_ABI = [
 ];
 export const GRANT_TTL_SECONDS = 300;
 export const ACCUMULATOR_STATUS_URL = "https://accumulator-8.vercel.app/api/status";
+export const KEEP_STATUS_URL = "https://keep-portfolios.vercel.app/api/status";
 
 export const CLICK_WAIT_SECONDS = 10;      // a click-through ticket becomes valid 10 s after the link was opened
 export const CLICK_TICKET_TTL_SECONDS = 3600;
 
 // grantId == the task id used in index.html: 1 = Follow on X, 3 = Try Accumulator, 4 = Try Keep.
 // grantId 2 (old "Follow on Base App") is retired and never signed again.
-// Accumulator is really verified. X follows can't be checked without a paid X API tier, and Keep has no public
-// per-wallet endpoint yet, so those two are click-through tasks: /api/grant { action: "start" } returns a ticket
+// Accumulator and Keep are really verified against their public status APIs. X follows can't be checked without a
+// paid X API tier, so X is a click-through task: /api/grant { action: "start" } returns a ticket
 // (HMAC by the signer key) when the player opens the link; the voucher is signed only once the ticket is >= 10 s old.
 // Once per wallet per task is still enforced on-chain (grantUsed). See docs/TASK-VERIFICATION.md.
 export const TASKS = {
   x: { grantId: 1n, lives: 1n, clickThrough: true },
   accumulator: { grantId: 3n, lives: 1n, verify: verifyAccumulator },
-  keep: { grantId: 4n, lives: 1n, clickThrough: true },
+  keep: { grantId: 4n, lives: 1n, verify: verifyKeep },
 };
 
 function ticketMac(cfg, player, task, ts) {
@@ -68,6 +69,21 @@ export async function verifyAccumulator(player, { fetchImpl = fetch } = {}) {
     throw new RejectError(403, "no Accumulator bot found for this wallet yet – start a bot in Accumulator with this same wallet first");
   }
   return { botAddress: getAddress(j.botAddress) };
+}
+
+/** Keep marks a wallet used only after it signs Keep's confirm message. 429 / 503 / anything odd -> try again later. */
+export async function verifyKeep(player, { fetchImpl = fetch } = {}) {
+  let j;
+  try {
+    const r = await fetchImpl(`${KEEP_STATUS_URL}?address=${player}`, { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    j = await r.json();
+  } catch (e) {
+    throw new RejectError(503, "Keep is busy right now, try again later");
+  }
+  if (typeof j?.used !== "boolean") throw new RejectError(503, "Keep is busy right now, try again later");
+  if (!j.used) throw new RejectError(403, "this wallet hasn't used Keep yet – open Keep, connect this same wallet and sign the confirm message there, then claim");
+  return { keepFirstSeenAt: j.firstSeenAt ?? null };
 }
 
 export async function signGrant({ player, task, ticket }, cfg, deps = {}) {

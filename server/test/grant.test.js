@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Wallet } from "ethers";
-import { verifyAccumulator, signGrant, startClickTask, verifyClickTicket, TASKS, CLICK_WAIT_SECONDS } from "../grant.js";
+import { verifyAccumulator, verifyKeep, KEEP_STATUS_URL, signGrant, startClickTask, verifyClickTicket, TASKS, CLICK_WAIT_SECONDS } from "../grant.js";
 import { RejectError } from "../signer.js";
 
 const P = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
@@ -26,9 +26,9 @@ test("task ids: X=1, Accumulator=3, Keep=4; Base App (2) retired", () => {
 });
 test("unknown / retired tasks are refused", async () => {
   for (const task of ["base", "", "nope"]) await assert.rejects(signGrant({ player: P, task }, {}), (e) => e.status === 400);
-  assert.throws(() => startClickTask({ player: P, task: "accumulator" }, cfg(1000)), (e) => e.status === 400);
+  for (const task of ["accumulator", "keep"]) assert.throws(() => startClickTask({ player: P, task }, cfg(1000)), (e) => e.status === 400);
 });
-for (const task of ["x", "keep"]) {
+for (const task of ["x"]) {
   test(`${task}: click-through ticket valid only after the wait, for that wallet+task`, () => {
     const { ticket, waitSeconds } = startClickTask({ player: P, task }, cfg(1000));
     assert.equal(waitSeconds, CLICK_WAIT_SECONDS);
@@ -36,8 +36,28 @@ for (const task of ["x", "keep"]) {
     assert.deepEqual(verifyClickTicket(P, task, ticket, cfg(1000 + CLICK_WAIT_SECONDS)), { clickedAt: 1000 });
     assert.throws(() => verifyClickTicket(P, task, ticket, cfg(1000 + 3601)), (e) => e.status === 403);
     assert.throws(() => verifyClickTicket("0x1111111111111111111111111111111111111111", task, ticket, cfg(1020)), /invalid ticket/);
-    assert.throws(() => verifyClickTicket(P, task === "x" ? "keep" : "x", ticket, cfg(1020)), /invalid ticket/);
+    assert.throws(() => verifyClickTicket(P, "keep", ticket, cfg(1020)), /invalid ticket/);
     assert.throws(() => verifyClickTicket(P, task, ticket.replace(/^1000/, "900"), cfg(1020)), /invalid ticket/);
     assert.throws(() => verifyClickTicket(P, task, undefined, cfg(1020)), /open the link first/);
   });
 }
+
+const keepFake = (status, body) => { const calls = []; const f = async (url, opts) => { calls.push(url); return { ok: status === 200, status, json: async () => body }; }; f.calls = calls; return f; };
+test("keep: used:true -> ok, calls Keep's status endpoint with the player", async () => {
+  const f = keepFake(200, { used: true, firstSeenAt: 1793446639000 });
+  assert.deepEqual(await verifyKeep(P, { fetchImpl: f }), { keepFirstSeenAt: 1793446639000 });
+  assert.equal(f.calls[0], `${KEEP_STATUS_URL}?address=${P}`);
+});
+test("keep: used:false -> 403 telling the player to open Keep, connect and sign", async () => {
+  await assert.rejects(verifyKeep(P, { fetchImpl: keepFake(200, { used: false, firstSeenAt: null }) }),
+    (e) => e instanceof RejectError && e.status === 403 && /open Keep, connect this same wallet and sign/.test(e.message));
+});
+for (const code of [429, 503, 400, 500]) {
+  test(`keep: HTTP ${code} -> 503 try again later, no grant`, async () => {
+    await assert.rejects(verifyKeep(P, { fetchImpl: keepFake(code, { error: "x" }) }), (e) => e.status === 503 && /try again later/.test(e.message));
+  });
+}
+test("keep: network error or malformed body -> 503 try again later", async () => {
+  await assert.rejects(verifyKeep(P, { fetchImpl: async () => { throw new Error("ECONNRESET"); } }), (e) => e.status === 503);
+  await assert.rejects(verifyKeep(P, { fetchImpl: keepFake(200, { used: "yes" }) }), (e) => e.status === 503);
+});
