@@ -192,8 +192,10 @@
     <h3 style="color:#F7931A; text-shadow: 0 0 8px #F7931A;">Earn Free Lives (One-Time Tasks)</h3>
     <div style="margin: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 10px;">
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-        <a data-ext data-task="1" href="https://x.com/kevinmm8222" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow @kevinmm8222 on X</a>
+        <a data-ext data-task="1" href="https://x.com/intent/follow?screen_name=kevinmm8222" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Follow @kevinmm8222 on X</a>
         <button id="task-x">Claim Life</button>
+      </div>
+      <div id="task-x-hint" style="display:none; color:#9cf; font-size:0.9em; margin-top:-6px;">Back from X? Tap Claim Life.
       </div>
       <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
         <a data-ext="miniapp" href="https://accumulator-8.vercel.app/" target="_blank" rel="noopener noreferrer" style="color:#F7931A; text-decoration: underline; font-weight: 600;">Try our other mini app: Accumulator</a>
@@ -1083,8 +1085,10 @@
       } catch (e) { console.error('Personal high fetch error', e); }
     }
 
-    document.getElementById('connect-wallet').addEventListener('click', async () => {
-      if (isConnecting) return;
+    // v5.13: silent=true restores a previously connected wallet on load with eth_accounts (never prompts).
+    document.getElementById('connect-wallet').addEventListener('click', () => connectWallet(false));
+    async function connectWallet(silent) {
+      if (isConnecting || userAddress) return;
       isConnecting = true;
       const button = document.getElementById('connect-wallet');
       const prevText = button.innerText;
@@ -1096,14 +1100,15 @@
         // Prefer the injected wallet (Base app / Coinbase / MetaMask); the mini-app provider is the fallback.
         const eip1193 = window.ethereum || eip6963[0]?.provider || fcProvider;
         console.log('[connect] provider:', window.ethereum ? 'window.ethereum' : eip6963[0] ? 'EIP-6963 ' + eip6963[0].info?.name : fcProvider ? 'mini-app SDK' : 'none');
-        if (!eip1193) throw new Error('No wallet found. Open this page in the Base app browser or a wallet browser.');
-        button.innerText = 'Approve in wallet...';
-        const accounts = await withTimeout(eip1193.request({ method: "eth_requestAccounts" }), 120000, 'Wallet connection request');
-        console.log('[connect] accounts', accounts);
-        if (!accounts || !accounts.length) throw new Error('Wallet returned no account');
+        if (!eip1193) { if (silent) throw Object.assign(new Error('no wallet'), { silentSkip: true }); throw new Error('No wallet found. Open this page in the Base app browser or a wallet browser.'); }
+        if (!silent) button.innerText = 'Approve in wallet...';
+        const accounts = await withTimeout(eip1193.request({ method: silent ? "eth_accounts" : "eth_requestAccounts" }), silent ? 5000 : 120000, 'Wallet connection request');
+        console.log('[connect] accounts', silent ? '(silent)' : '', accounts);
+        if (!accounts || !accounts.length) { if (silent) throw Object.assign(new Error('not connected yet'), { silentSkip: true }); throw new Error('Wallet returned no account'); }
         const net = await withTimeout(eip1193.request({ method: "eth_chainId" }), 10000, 'eth_chainId');
         console.log('[connect] chainId', net);
         if (Number(net) !== 8453) {
+          if (silent) throw Object.assign(new Error('wallet not on Base'), { silentSkip: true }); // switching would prompt
           button.innerText = 'Switch to Base in wallet...';
           await ensureBase(eip1193);
         }
@@ -1156,6 +1161,9 @@
         updateDailyClaim();
         refreshTasksFromChain();
       } catch (err) {
+        button.innerText = prevText;
+        button.disabled = false;
+        if (silent) { console.log('[connect] silent reconnect skipped:', err?.message); return; }
         console.error('[connect] error:', err);
         const msg = err?.code === 4001 ? 'Request rejected in wallet' : (err?.shortMessage || err?.message || String(err));
         button.innerText = prevText;
@@ -1164,7 +1172,7 @@
       } finally {
         isConnecting = false;
       }
-    });
+    }
 
 let startButton = document.getElementById("start-game");
 let freeClaimNeeded = false;
@@ -1728,8 +1736,20 @@ startButton.addEventListener("click", async () => {
     // /api/grant redeems after ~10 s. 3 (Accumulator) and 4 (Keep) are verified server-side against each app's status API.
     const TASK_KEYS = { 1: 'x', 3: 'accumulator', 4: 'keep' };
     const CLICK_TASKS = { 1: true };
-    const clickTickets = {}; // `${address}:${taskId}` -> { ticket, readyAt }
-    const ticketKey = (id) => `${userAddress}:${id}`;
+    // v5.13: click-through tickets survive leaving the app / reloads: localStorage, keyed by wallet + task.
+    const TICKET_TTL_MS = 3600 * 1000 - 60 * 1000; // server accepts tickets up to 1 h old
+    const ticketKey = (id) => `ast:ticket:${String(userAddress).toLowerCase()}:${id}`;
+    const clickTickets = new Proxy({}, {
+      get(_, k) {
+        try {
+          const t = JSON.parse(localStorage.getItem(k) || 'null');
+          if (!t || !t.ticket || Date.now() - t.issuedAt > TICKET_TTL_MS) { localStorage.removeItem(k); return undefined; }
+          return t;
+        } catch (e) { return undefined; }
+      },
+      set(_, k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} return true; },
+      deleteProperty(_, k) { try { localStorage.removeItem(k); } catch (e) {} return true; },
+    });
     async function startClickTicket(taskId) {
       if (!userAddress || !CLICK_TASKS[taskId]) return null;
       const cur = clickTickets[ticketKey(taskId)];
@@ -1739,7 +1759,8 @@ startButton.addEventListener("click", async () => {
           body: JSON.stringify({ player: userAddress, task: TASK_KEYS[taskId], action: 'start' }) }), 15000, 'Task start');
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.ticket) throw new Error(j.error || `HTTP ${r.status}`);
-        const t = { ticket: j.ticket, readyAt: Date.now() + (Number(j.waitSeconds) || 10) * 1000 + 1500 };
+        const issuedAt = Date.now();
+        const t = { ticket: j.ticket, issuedAt, readyAt: issuedAt + (Number(j.waitSeconds) || 10) * 1000 + 1500 };
         clickTickets[ticketKey(taskId)] = t;
         return t;
       } catch (e) { console.warn('[task] start failed', e?.message); return null; }
@@ -1748,13 +1769,42 @@ startButton.addEventListener("click", async () => {
       const btn = document.getElementById(buttonId), t = clickTickets[ticketKey(taskId)];
       if (!btn || !t || btn.innerText === 'Completed') return;
       const left = Math.ceil((t.readyAt - Date.now()) / 1000);
-      if (left > 0) { btn.disabled = true; btn.innerText = `Claim in ${left}s`; setTimeout(() => countdown(taskId, buttonId), 1000); }
+      if (left > 0) { btn.disabled = true; btn.innerText = `Claim life (ready in ${left}s)`; setTimeout(() => countdown(taskId, buttonId), 1000); }
       else { btn.disabled = false; btn.innerText = 'Claim Life'; }
+      updateTaskHints();
+    }
+    function updateTaskHints() {
+      const hint = document.getElementById('task-x-hint'), btn = document.getElementById('task-x');
+      if (hint) hint.style.display = userAddress && clickTickets[ticketKey(1)] && btn && btn.innerText !== 'Completed' ? 'block' : 'none';
+    }
+    function resumeClickTasks() {
+      if (!userAddress) return;
+      for (const [id, btnId] of TASK_BUTTONS) if (CLICK_TASKS[id] && clickTickets[ticketKey(id)]) countdown(id, btnId);
+    }
+    // Coming back from X (tab switch / app switch / bfcache restore) refreshes the countdown + hint.
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') resumeClickTasks(); });
+    window.addEventListener('pageshow', resumeClickTasks);
+    // Open an outbound link WITHOUT ever navigating the game window. Mini-app hosts: sdk.actions.openUrl (overlay /
+    // external browser). Elsewhere: window.open(_blank). If the browser refuses a new window (some wallet webviews),
+    // show the link instead of replacing the game.
+    function openOutsideGame(url) {
+      const openUrl = window.__inMiniApp && sdk?.actions?.openUrl;
+      if (typeof openUrl === 'function') { Promise.resolve().then(() => openUrl(url)).catch((e) => { console.warn('[link] openUrl failed', e?.message); showLinkFallback(url); }); return; }
+      let w = null;
+      try { w = window.open(url, '_blank'); } catch (e) {}
+      if (w) { try { w.opener = null; } catch (e) {} return; }
+      showLinkFallback(url);
+    }
+    function showLinkFallback(url) {
+      uiAlert('Your browser blocked opening X in a new window. Open ' + url + ' in your X app or browser, then come back here: your claim timer keeps running.');
     }
     // Opening the X / Keep link (directly, or via the Claim button) starts that task's ticket.
     document.addEventListener('click', (ev) => {
       const a = ev.target.closest && ev.target.closest('a[data-task]');
-      if (!a || !userAddress) return;
+      if (!a) return;
+      ev.preventDefault(); // never let the game window itself navigate to X
+      openOutsideGame(a.href);
+      if (!userAddress) return;
       const id = Number(a.dataset.task), btnId = TASK_BUTTONS.find(([i]) => i === id)?.[1];
       startClickTicket(id).then((t) => { if (t) countdown(id, btnId); });
     });
@@ -1791,6 +1841,8 @@ startButton.addEventListener("click", async () => {
         lives = Number(await lbRead().playerLives(userAddress));
         await updateTopBar();
         markTaskDone(buttonId);
+        if (CLICK_TASKS[taskId]) delete clickTickets[ticketKey(taskId)];
+        updateTaskHints();
         uiAlert(`✅ ${Number(BigInt(lives) - livesBefore) || 1} free life confirmed on-chain!`);
       } catch (e) {
         console.error('Task claim failed', e);
@@ -1802,14 +1854,16 @@ startButton.addEventListener("click", async () => {
     async function refreshTasksFromChain() {
       if (!useV2 || !provider || !userAddress) return;
       for (const [id, btnId] of TASK_BUTTONS) {
-        try { if (await lbRead().grantUsed(userAddress, id)) markTaskDone(btnId); } catch (e) {}
+        try { if (await lbRead().grantUsed(userAddress, id)) { markTaskDone(btnId); if (CLICK_TASKS[id]) delete clickTickets[ticketKey(id)]; } } catch (e) {}
       }
+      resumeClickTasks(); // e.g. back from X after a reload: "Claim life (ready in Ns)" / "Claim Life" + hint
+      updateTaskHints();
     }
     // v5.11: outbound links. Normal browsers keep the link's own behaviour (new tab for follow links, same tab
     // for More apps). Inside a Base / Farcaster mini-app host, webviews block or trap these, so use the SDK.
     document.addEventListener('click', (ev) => {
       const a = ev.target.closest && ev.target.closest('a[data-ext]');
-      if (!a || !window.__inMiniApp || !sdk?.actions) return;
+      if (!a || a.dataset.task || !window.__inMiniApp || !sdk?.actions) return; // task links: openOutsideGame
       const url = a.href;
       const openMini = sdk.actions.openMiniApp, openUrl = sdk.actions.openUrl;
       if (a.dataset.ext === 'miniapp' && typeof openMini === 'function') {
@@ -1833,6 +1887,7 @@ startButton.addEventListener("click", async () => {
     document.addEventListener('DOMContentLoaded', () => {
       loadCompletedTasks();
       updateDailyClaim();
+      connectWallet(true); // v5.13: restore an already-authorised wallet without a prompt
     });
   </script>
   <script>
