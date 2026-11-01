@@ -11,6 +11,7 @@ export const GRANT_ABI = [
   "function paused() view returns (bool)",
 ];
 export const GRANT_TTL_SECONDS = 300;
+export const ACCUMULATOR_USDC_BOT_URL = "https://accumulator-8.vercel.app/api/usdc-bot";
 export const ACCUMULATOR_STATUS_URL = "https://accumulator-8.vercel.app/api/status";
 export const KEEP_STATUS_URL = "https://keep-portfolios.vercel.app/api/status";
 
@@ -55,20 +56,25 @@ export function verifyClickTicket(player, task, ticket, cfg) {
   return { clickedAt: ts };
 }
 
-/** Accumulator creates a player's bot wallet only after the player signs "Start" in the app with this wallet. */
-export async function verifyAccumulator(player, { fetchImpl = fetch } = {}) {
-  let j;
+/** Accumulator: a player counts once they have a USDC bot (/api/usdc-bot?owner=, exists:true) OR the older cbBTC bot
+ *  (/api/status?address=, botWalletExists:true). Both are queried in parallel; 404 {enabled:false} / 400 = "not verified".
+ *  503 only when BOTH are unreachable (network error, 5xx, 429). */
+async function probeJson(fetchImpl, url) {
   try {
-    const r = await fetchImpl(`${ACCUMULATOR_STATUS_URL}?address=${player}`, { headers: { accept: "application/json" } });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    j = await r.json();
-  } catch (e) {
-    throw new RejectError(503, "could not reach Accumulator, try again later");
-  }
-  if (j?.botWalletExists !== true || !isAddress(j?.botAddress)) {
-    throw new RejectError(403, "no Accumulator bot found for this wallet yet – start a bot in Accumulator with this same wallet first");
-  }
-  return { botAddress: getAddress(j.botAddress) };
+    const r = await fetchImpl(url, { headers: { accept: "application/json" } });
+    if (r.status >= 500 || r.status === 429) return { down: true };
+    return { down: false, ok: r.ok, j: await r.json().catch(() => null) };
+  } catch (e) { return { down: true }; }
+}
+export async function verifyAccumulator(player, { fetchImpl = fetch } = {}) {
+  const [usdc, legacy] = await Promise.all([
+    probeJson(fetchImpl, `${ACCUMULATOR_USDC_BOT_URL}?owner=${player}`),
+    probeJson(fetchImpl, `${ACCUMULATOR_STATUS_URL}?address=${player}`),
+  ]);
+  if (usdc.ok && usdc.j?.exists === true) return { bot: "usdc", botAddress: isAddress(usdc.j.botAddress) ? getAddress(usdc.j.botAddress) : null };
+  if (legacy.ok && legacy.j?.botWalletExists === true) return { bot: "cbbtc", botAddress: isAddress(legacy.j.botAddress) ? getAddress(legacy.j.botAddress) : null };
+  if (usdc.down && legacy.down) throw new RejectError(503, "could not reach Accumulator, try again later");
+  throw new RejectError(403, "no Accumulator bot found for this wallet yet – start a bot in Accumulator with this same wallet first");
 }
 
 /** Keep marks a wallet used only after it signs Keep's confirm message. 429 / 503 / anything odd -> try again later. */
