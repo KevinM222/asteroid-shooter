@@ -1799,14 +1799,45 @@ startButton.addEventListener("click", async () => {
       uiAlert('Your browser blocked opening X in a new window. Open ' + url + ' in your X app or browser, then come back here: your claim timer keeps running.');
     }
     // Opening the X / Keep link (directly, or via the Claim button) starts that task's ticket.
-    document.addEventListener('click', (ev) => {
+    // v5.14: on iOS / in wallet in-app browsers (Coinbase Wallet) window.open and https x.com links go through Safari,
+    // so iOS's back link in X says "Safari". Open the X app's own scheme from the game window instead: iOS then shows
+    // "◀ Coinbase Wallet". twitter:// is what the X app registers (x:// is tried once as a fallback); only if neither
+    // app scheme leaves the page within ~1.5 s is the https intent opened, in a NEW window, never in the game window.
+    const X_APP_URLS = ['twitter://user?screen_name=kevinmm8222', 'x://user?screen_name=kevinmm8222'];
+    function useAppScheme() {
+      if (window.__inMiniApp) return false; // Base app / Farcaster: sdk.actions.openUrl path unchanged
+      const ua = navigator.userAgent || '';
+      const iOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+      const mobile = iOS || /Android|Mobi/i.test(ua);
+      // desktop Coinbase extension also sets isCoinbaseWallet, so only count it on mobile
+      const walletBrowser = mobile && (/CoinbaseWallet|CoinbaseBrowser|Coinbase|BaseApp/i.test(ua) || !!window.ethereum?.isCoinbaseWallet);
+      return iOS || walletBrowser;
+    }
+    function tryAppSchemes(urls, httpsUrl) {
+      if (!urls.length) { openOutsideGame(httpsUrl); return; } // app not installed: https in a new window
+      let left = false;
+      const gone = () => { if (document.visibilityState === 'hidden') left = true; };
+      const blur = () => { left = true; };
+      document.addEventListener('visibilitychange', gone); window.addEventListener('pagehide', blur); window.addEventListener('blur', blur);
+      try { window.__navigateApp ? window.__navigateApp(urls[0]) : (location.href = urls[0]); } catch (e) { console.warn('[x] scheme failed', e?.message); }
+      setTimeout(() => {
+        document.removeEventListener('visibilitychange', gone); window.removeEventListener('pagehide', blur); window.removeEventListener('blur', blur);
+        if (!left) { console.log('[x] app did not open via', urls[0]); tryAppSchemes(urls.slice(1), httpsUrl); }
+      }, 1500);
+    }
+    document.addEventListener('click', async (ev) => {
       const a = ev.target.closest && ev.target.closest('a[data-task]');
       if (!a) return;
-      ev.preventDefault(); // never let the game window itself navigate to X
-      openOutsideGame(a.href);
-      if (!userAddress) return;
+      ev.preventDefault(); // the game window is never navigated to the https page
       const id = Number(a.dataset.task), btnId = TASK_BUTTONS.find(([i]) => i === id)?.[1];
-      startClickTicket(id).then((t) => { if (t) countdown(id, btnId); });
+      if (!(id === 1 && useAppScheme())) {
+        openOutsideGame(a.href);
+        if (userAddress) startClickTicket(id).then((t) => { if (t) countdown(id, btnId); });
+        return;
+      }
+      // Start + persist the claim ticket BEFORE leaving for the X app (localStorage survives the app switch / reload).
+      if (userAddress) { const t = await withTimeout(startClickTicket(id), 4000, 'Task start').catch(() => null); if (t) countdown(id, btnId); }
+      tryAppSchemes(X_APP_URLS, a.href);
     });
     const TASK_BUTTONS = [[1, 'task-x'], [3, 'task-accumulator'], [4, 'task-keep']];
     function markTaskDone(buttonId) {

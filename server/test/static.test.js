@@ -52,3 +52,18 @@ test("X button states: countdown text and back-from-X hint", () => {
   assert.match(html, /Claim life \(ready in \$\{left\}s\)/);
   assert.match(html, /id="task-x-hint"[^>]*>Back from X\? Tap Claim Life\./);
 });
+
+test("iOS / Coinbase Wallet browser: X app scheme from the game window, https only as a new-window fallback", () => {
+  assert.match(html, /X_APP_URLS = \['twitter:\/\/user\?screen_name=kevinmm8222', 'x:\/\/user\?screen_name=kevinmm8222'\]/);
+  const ua = html.match(/function useAppScheme\(\) \{[\s\S]*?\n    \}/)[0];
+  assert.match(ua, /if \(window\.__inMiniApp\) return false;/); // Base app mini-app path unchanged
+  assert.match(ua, /iPhone\|iPad\|iPod/);
+  assert.match(ua, /window\.ethereum\?\.isCoinbaseWallet/);
+  assert.match(ua, /const walletBrowser = mobile &&/);
+  const tr = html.match(/function tryAppSchemes\(urls, httpsUrl\) \{[\s\S]*?\n    \}/)[0];
+  assert.match(tr, /if \(!urls\.length\) \{ openOutsideGame\(httpsUrl\); return; \}/);
+  assert.match(tr, /location\.href = urls\[0\]/);
+  assert.match(tr, /1500\)/);
+  // ticket is started and awaited before the app switch
+  assert.match(html, /await withTimeout\(startClickTicket\(id\), 4000, 'Task start'\)[\s\S]{0,80}\n\s*tryAppSchemes\(X_APP_URLS, a\.href\);/);
+});

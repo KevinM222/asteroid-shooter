@@ -32,3 +32,23 @@ on error 4902). Confirmation reads go to `https://mainnet.base.org`, not the wal
 
 Tests: `npm test` (unit). Fork: `anvil --fork-url https://mainnet.base.org &` then `RPC=http://127.0.0.1:8545 npm test`
 (server/test/grant-fork.test.js points the real contract's scoreSigner at a test key on the local fork only).
+
+### iPhone / wallet browser: straight to the X app
+
+Inside the Coinbase Wallet (or other wallet) in-app browser on iPhone, `window.open` and
+`https://x.com` universal links get handed to Safari, so the X app's top-left back link
+said "◀ Safari". The game now does this instead when the device is iOS, or a mobile wallet browser
+(UA contains Coinbase/BaseApp or `window.ethereum.isCoinbaseWallet` on a mobile UA):
+
+1. Starts the click-through ticket and saves it to localStorage **before** leaving.
+2. Sets the game window's `location.href = 'twitter://user?screen_name=kevinmm8222'`.
+   The X app still registers the legacy `twitter://` scheme; `x://` is not documented and
+   is only tried second.
+3. If the page hasn't been hidden or blurred within 1.5 s (the app isn't installed), it tries the next scheme, then
+   opens the https follow page in a **new** window. The game window itself is never sent to https.
+
+iOS then shows "◀ Coinbase Wallet" (the app that opened X). Coming back resumes the
+countdown/Claim Life from the saved ticket. Exceptions:
+- Base app mini-app: unchanged and still uses `sdk.actions.openUrl`.
+- Desktop: unchanged and still uses `window.open`, including with the Coinbase extension.
+- The scheme opens the profile, not the follow intent, so the player taps Follow there.
