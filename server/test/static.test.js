@@ -67,3 +67,18 @@ test("iOS / Coinbase Wallet browser: X app scheme from the game window, https on
   // ticket is started and awaited before the app switch
   assert.match(html, /await withTimeout\(startClickTicket\(id\), 4000, 'Task start'\)[\s\S]{0,80}\n\s*tryAppSchemes\(X_APP_URLS, a\.href\);/);
 });
+
+test("every outbound link goes through openLink with a path back to the game", () => {
+  const ol = html.match(/function openLink\(url[\s\S]*?\n    \}/)[0];
+  assert.match(ol, /openMini\(\{ url \}\)/);                 // mini-app: openMiniApp
+  assert.match(ol, /openUrl\(url\)/);                        // mini-app: openUrl
+  assert.match(ol, /if \(inWalletBrowser\(\)\) \{\n\s*saveReturnState\(url\);/); // wallet browser: same webview by default
+  assert.match(html, /return localStorage.getItem\(.ast:linkmode.\) \|\| .same.;/);
+  assert.match(ol, /window\.open\(url, '_blank'\)/);         // desktop: new tab
+  assert.match(html, /function inWalletBrowser\(\) \{\n\s*if \(window\.__inMiniApp \|\| !isPhone\(\)\) return false;/);
+  assert.match(html, /u\.searchParams\.set\('ref', 'asteroids'\)/);
+  assert.match(html, /window\.addEventListener\('pageshow', restoreReturnState\)/);
+  assert.match(html, /function openExternal\(url\) \{ openLink\(url\); \}/);
+  assert.match(html, /if \(!a \|\| a\.dataset\.task\) return;[^\n]*\n\s*ev\.preventDefault\(\);\n\s*openLink\(a\.href, \{ miniApp: a\.dataset\.ext === 'miniapp' \}\);/);
+  assert.doesNotMatch(html, /window\.open\(url, '_blank', 'noopener'\)/);
+});

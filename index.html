@@ -1608,13 +1608,64 @@ startButton.addEventListener("click", async () => {
     }
     // v5.11: window.open(..., 'noopener') always returns null, which also navigated the game tab away.
     // In a mini-app host use sdk.actions.openUrl; elsewhere a new tab, falling back to same-tab only if blocked.
-    function miniOpenUrl() { const f = sdk?.actions?.openUrl; return window.__inMiniApp && typeof f === 'function' ? f : null; }
-    function openExternal(url) {
-      const openUrl = miniOpenUrl();
-      if (openUrl) { Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; }); return; }
-      const w = window.open(url, '_blank');
-      if (w) { try { w.opener = null; } catch (e) {} } else location.href = url;
+    // v5.15: one way out for every outbound link, always with a path back to Asteroids.
+    //  - Base / Farcaster mini-app: sdk.actions.openMiniApp (our mini apps) / openUrl.
+    //  - Wallet in-app browser on a phone (Coinbase Wallet, MetaMask…): window.open / _blank hand off to Safari and
+    //    lose the wallet + game, so navigate THIS webview; the wallet browser's back button returns to the game,
+    //    which restores from bfcache or reloads (tickets in localStorage, silent eth_accounts reconnect, scroll).
+    //  - Everything else (desktop, plain mobile Safari/Chrome): new tab.
+    const OWN_APPS = /^https:\/\/(keep-portfolios|accumulator-8)\.vercel\.app/i;
+    function withRef(url) {
+      if (!OWN_APPS.test(url)) return url;
+      try { const u = new URL(url); u.searchParams.set('ref', 'asteroids'); return u.toString(); } catch (e) { return url; }
     }
+    function isPhone() { const ua = navigator.userAgent || ''; return /iPhone|iPad|iPod|Android|Mobi/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); }
+    function inWalletBrowser() {
+      if (window.__inMiniApp || !isPhone()) return false;
+      const e = window.ethereum;
+      return /CoinbaseWallet|CoinbaseBrowser|BaseApp|MetaMaskMobile|Rainbow|Trust|OKApp|Phantom/i.test(navigator.userAgent || '') ||
+        !!(e && (e.isCoinbaseWallet || e.isMetaMask || e.isRainbow || e.isTrust || e.isPhantom || e.isOkxWallet));
+    }
+    // Coinbase Wallet iOS has no documented in-app tabs; window.open / _blank were seen handing off to Safari, so the
+    // default in wallet browsers is same-webview. Open the game once with ?linkmode=tab (or ?linkmode=same) to switch.
+    function walletLinkMode() {
+      try {
+        const q = new URLSearchParams(location.search).get('linkmode');
+        if (q === 'tab' || q === 'same') localStorage.setItem('ast:linkmode', q);
+        return localStorage.getItem('ast:linkmode') || 'same';
+      } catch (e) { return 'same'; }
+    }
+    function saveReturnState(url) {
+      try { localStorage.setItem('ast:return', JSON.stringify({ url, at: Date.now(), scrollY: window.scrollY })); } catch (e) {}
+    }
+    function restoreReturnState() {
+      let r = null; try { r = JSON.parse(localStorage.getItem('ast:return') || 'null'); localStorage.removeItem('ast:return'); } catch (e) {}
+      if (!r || Date.now() - r.at > 6 * 3600 * 1000) return;
+      if (r.scrollY) requestAnimationFrame(() => window.scrollTo(0, r.scrollY));
+      if (typeof resumeClickTasks === 'function') resumeClickTasks();
+    }
+    window.addEventListener('pageshow', restoreReturnState);
+    function openLink(url, { miniApp = false } = {}) {
+      url = withRef(url);
+      const acts = window.__inMiniApp && sdk?.actions;
+      if (acts) {
+        const openMini = acts.openMiniApp, openUrl = acts.openUrl;
+        if (miniApp && typeof openMini === 'function') return Promise.resolve().then(() => openMini({ url })).catch(() => (typeof openUrl === 'function' ? openUrl(url) : (location.href = url)));
+        if (typeof openUrl === 'function') return Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
+      }
+      if (inWalletBrowser()) {
+        saveReturnState(url);
+        if (walletLinkMode() === 'tab') { // experiment: real target=_blank anchor (some WKWebView hosts open an in-app tab)
+          const t = document.createElement('a'); t.href = url; t.target = '_blank'; t.rel = 'noopener'; t.click(); return;
+        }
+        (window.__navigateSame || ((u) => location.assign(u)))(url); return;
+      }
+      let w = null; try { w = window.open(url, '_blank'); } catch (e) {}
+      if (w) { try { w.opener = null; } catch (e) {} return; }
+      saveReturnState(url); location.assign(url); // new tab refused: same tab, browser back returns
+    }
+    function miniOpenUrl() { const f = sdk?.actions?.openUrl; return window.__inMiniApp && typeof f === 'function' ? f : null; }
+    function openExternal(url) { openLink(url); }
     document.getElementById('share-fc-btn').addEventListener('click', () => {
       const n = Number(score) || 0;
       openExternal(`https://farcaster.xyz/~/compose?text=${encodeURIComponent(shareText(n))}&embeds[]=${encodeURIComponent(shareUrl())}`);
@@ -1653,8 +1704,7 @@ startButton.addEventListener("click", async () => {
         setTimeout(() => {
           window.removeEventListener('pagehide', mark); document.removeEventListener('visibilitychange', mark);
           if (left || document.visibilityState !== 'visible') return;
-          if (window.__inMiniApp && typeof openUrl === 'function') Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
-          else { const w = window.open(url, '_blank', 'noopener'); if (!w) location.href = url; }
+          openLink(url); // no X app: x.com in a new tab, or in this webview inside a wallet browser
         }, 1200);
         return;
       }
@@ -1790,6 +1840,7 @@ startButton.addEventListener("click", async () => {
     function openOutsideGame(url) {
       const openUrl = window.__inMiniApp && sdk?.actions?.openUrl;
       if (typeof openUrl === 'function') { Promise.resolve().then(() => openUrl(url)).catch((e) => { console.warn('[link] openUrl failed', e?.message); showLinkFallback(url); }); return; }
+      if (inWalletBrowser()) { openLink(url); return; } // same webview; back button returns, ticket is in localStorage
       let w = null;
       try { w = window.open(url, '_blank'); } catch (e) {}
       if (w) { try { w.opener = null; } catch (e) {} return; }
@@ -1894,16 +1945,9 @@ startButton.addEventListener("click", async () => {
     // for More apps). Inside a Base / Farcaster mini-app host, webviews block or trap these, so use the SDK.
     document.addEventListener('click', (ev) => {
       const a = ev.target.closest && ev.target.closest('a[data-ext]');
-      if (!a || a.dataset.task || !window.__inMiniApp || !sdk?.actions) return; // task links: openOutsideGame
-      const url = a.href;
-      const openMini = sdk.actions.openMiniApp, openUrl = sdk.actions.openUrl;
-      if (a.dataset.ext === 'miniapp' && typeof openMini === 'function') {
-        ev.preventDefault();
-        Promise.resolve().then(() => openMini({ url })).catch(() => (typeof openUrl === 'function' ? openUrl(url) : (location.href = url)));
-      } else if (typeof openUrl === 'function') {
-        ev.preventDefault();
-        Promise.resolve().then(() => openUrl(url)).catch(() => { location.href = url; });
-      }
+      if (!a || a.dataset.task) return; // X task link has its own app-scheme flow
+      ev.preventDefault();
+      openLink(a.href, { miniApp: a.dataset.ext === 'miniapp' });
     });
 
     // v4.64: wired here instead of inline onclick="" attributes (CSP-friendly)

@@ -52,3 +52,26 @@ countdown/Claim Life from the saved ticket. Exceptions:
 - Base app mini-app: unchanged and still uses `sdk.actions.openUrl`.
 - Desktop: unchanged and still uses `window.open`, including with the Coinbase extension.
 - The scheme opens the profile, not the follow intent, so the player taps Follow there.
+
+## Outbound links: always a way back to Asteroids (v5.15)
+
+Every outbound link goes through `openLink()`. That covers the Accumulator/Keep tasks, the More apps strip, the Farcaster/X share buttons, and the X task fallback when the X app isn't installed.
+
+| Context | Behavior |
+|---|---|
+| Base / Farcaster mini-app | `sdk.actions.openMiniApp` for our mini apps, `openUrl` otherwise (unchanged) |
+| Wallet in-app browser on a phone (Coinbase Wallet, MetaMask, …) | Navigate the **same webview**; the wallet's back button returns to the game |
+| Desktop, plain mobile Safari/Chrome | New tab |
+
+Links to Keep and Accumulator get `?ref=asteroids`.
+
+Before leaving, the game saves its state. On return (bfcache or reload) it restores everything:
+- `ast:return` holds the destination and scroll position, and the scroll position is restored on return.
+- X claim tickets stay in localStorage and the countdown resumes.
+- The wallet reconnects silently via `eth_accounts`.
+
+Coinbase Wallet iOS has no documented in-app tabs. `window.open` / `_blank` were seen handing off to Safari, which
+loses the wallet. Opening the game once with `?linkmode=tab` switches wallet browsers to a real `target=_blank`
+anchor so a device test can check whether that stays in-app. `?linkmode=same` switches back. The choice is stored in localStorage.
+
+The X follow task still uses the `twitter://` app scheme (see above).
