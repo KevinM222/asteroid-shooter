@@ -61,3 +61,40 @@ test("keep: network error or malformed body -> 503 try again later", async () =>
   await assert.rejects(verifyKeep(P, { fetchImpl: async () => { throw new Error("ECONNRESET"); } }), (e) => e.status === 503);
   await assert.rejects(verifyKeep(P, { fetchImpl: keepFake(200, { used: "yes" }) }), (e) => e.status === 503);
 });
+
+// per-endpoint mock: usdc / status are [status, body] or "down" (network error)
+const both = (usdc, status) => async (url) => {
+  const spec = url.includes("/api/usdc-bot?owner=") ? usdc : url.includes("/api/status?address=") ? status : null;
+  if (!spec) throw new Error("unexpected url " + url);
+  if (spec === "down") throw new Error("ECONNRESET");
+  return { ok: spec[0] >= 200 && spec[0] < 300, status: spec[0], json: async () => spec[1] };
+};
+const BOT = "0x2222222222222222222222222222222222222222";
+const usdcYes = [200, { enabled: true, exists: true, active: true, botAddress: BOT, totalUsd: 12 }];
+const statusNo = [200, { botWalletExists: false, botAddress: "" }];
+test("accumulator: USDC bot only -> ok (Kevin's case)", async () => {
+  const r = await verifyAccumulator(P, { fetchImpl: both(usdcYes, statusNo) });
+  assert.equal(r.bot, "usdc"); assert.equal(r.botAddress, BOT);
+});
+test("accumulator: legacy cbBTC bot only -> ok, even if usdc feature off (404) or usdc down", async () => {
+  const legacy = [200, { botWalletExists: true, botAddress: BOT }];
+  assert.equal((await verifyAccumulator(P, { fetchImpl: both([404, { enabled: false }], legacy) })).bot, "cbbtc");
+  assert.equal((await verifyAccumulator(P, { fetchImpl: both("down", legacy) })).bot, "cbbtc");
+});
+test("accumulator: USDC ok while /api/status is down -> ok", async () => {
+  assert.equal((await verifyAccumulator(P, { fetchImpl: both(usdcYes, [503, {}]) })).bot, "usdc");
+});
+test("accumulator: feature off (404 enabled:false) + no legacy bot -> 403", async () => {
+  await assert.rejects(verifyAccumulator(P, { fetchImpl: both([404, { enabled: false }], statusNo) }), (e) => e.status === 403);
+  await assert.rejects(verifyAccumulator(P, { fetchImpl: both([200, { enabled: true, exists: false }], statusNo) }), (e) => e.status === 403);
+});
+test("accumulator: one endpoint down, other says no -> 403; both down -> 503", async () => {
+  await assert.rejects(verifyAccumulator(P, { fetchImpl: both("down", statusNo) }), (e) => e.status === 403);
+  await assert.rejects(verifyAccumulator(P, { fetchImpl: both("down", [500, {}]) }), (e) => e.status === 503);
+  await assert.rejects(verifyAccumulator(P, { fetchImpl: both([429, {}], "down") }), (e) => e.status === 503);
+});
+test("accumulator: queries both endpoints in parallel", async () => {
+  let inflight = 0, max = 0;
+  const f = async (url) => { inflight++; max = Math.max(max, inflight); await new Promise((r) => setTimeout(r, 20)); inflight--; return both(usdcYes, statusNo)(url); };
+  await verifyAccumulator(P, { fetchImpl: f }); assert.equal(max, 2);
+});
