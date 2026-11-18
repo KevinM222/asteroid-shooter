@@ -13,7 +13,7 @@ s = s.replace("<title>Asteroid Shooter</title>", "<title>Asteroid Shooter</title
 open("index.html", "w").write(s)
 f = ".well-known/farcaster.json"; m = json.load(open(f))
 m["app"] = {"name": "Asteroid Shooter", "description": "Arcade asteroid shooter on Base with an onchain leaderboard.",
-            "url": "https://asteroid-shooter-alpha.vercel.app", "base:app_id": app_id}
+            "url": "https://asteroidsshooter.app", "base:app_id": app_id}
 m.setdefault("version", "1")
 json.dump(m, open(f, "w"), indent=2); open(f, "a").write("\n")
 print("ok:", app_id)

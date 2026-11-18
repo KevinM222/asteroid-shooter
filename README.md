@@ -1,5 +1,5 @@
 # Asteroid Shooter (Base mini app)
-Single-file Phaser 3 + ethers v6 game, deployed on Vercel (asteroid-shooter-alpha.vercel.app).
+Single-file Phaser 3 + ethers v6 game, deployed on Vercel at https://asteroidsshooter.app (the original https://asteroid-shooter-alpha.vercel.app still serves the same deployment).
 - `index.html` – game (canonical, Rev 4.64 lineage; v2.12 fixes to be ported, see cleanup-plan)
 - `assets/` – sprites
 - `contracts/` – Leaderboard + AsteroidToken source (solc 0.8.20, OZ 5.0.2). NOTE: closest local source, NOT byte-identical to mainnet deployments; deployments are unverified.
@@ -25,11 +25,12 @@ No secrets belong in this repo; see .gitignore.
 
 ## Manifest (`/.well-known/farcaster.json`)
 `accountAssociation` contains placeholders and must be signed by Kevin's account:
-1. Deploy (merge) so the manifest is live at https://asteroid-shooter-alpha.vercel.app/.well-known/farcaster.json
+1. Deploy (merge) so the manifest is live at https://asteroidsshooter.app/.well-known/farcaster.json
 2. Generate the association with either
-   - Base.dev: https://www.base.dev/preview?tab=account -> enter `asteroid-shooter-alpha.vercel.app` -> Submit -> Verify -> Sign, or
+   - Base.dev: https://www.base.dev/preview?tab=account -> enter `asteroidsshooter.app` -> Submit -> Verify -> Sign, or
    - Farcaster: https://farcaster.xyz/~/developers/mini-apps/manifest (sign with the Farcaster account that owns the app).
 3. Paste `header`, `payload`, `signature` into the file, commit, redeploy.
+   The association is bound to one domain: sign it for `asteroidsshooter.app` (the `canonicalDomain`), not the old vercel.app host.
 
 Note: since April 2026 the Base App treats apps as standard web apps and reads metadata from the Base.dev project,
 not from farcaster.json; the manifest is still used by Farcaster clients.
@@ -39,6 +40,6 @@ The Base app (Coinbase Wallet) takes a site's bookmark icon and name from its ba
 `<meta name="base:app_id" content="…">` tag (that is how the Accumulator app gets its icon). To enable it:
 1. base.dev → Register new app → name "Asteroid Shooter", icon = `icon.png` (1024×1024).
 2. Paste the generated `base:app_id` meta tag into `<head>` of index.html (server-rendered, as plain HTML), then deploy to production.
-3. base.dev → Verify & Add URL → `https://asteroid-shooter-alpha.vercel.app/`.
+3. base.dev → Verify & Add URL → `https://asteroidsshooter.app/`.
 4. Optionally add a matching `/.well-known/farcaster.json` `app` block with the same `base:app_id`.
 Then delete and re-add the bookmark.
