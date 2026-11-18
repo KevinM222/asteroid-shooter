@@ -1066,6 +1066,25 @@
       setTimeout(optimizeGameSize, 100);
     });
 
+    // Fresh per-game state. Called on every start (first game AND Play Again) before the countdown.
+    // Before this, score/misses/shields carried over: game 2 began at Missed 3/3 with game 1's score, so it
+    // ended on the first miss and the server rightly rejected "score too high for game length".
+    function resetRoundState(scene) {
+      score = 0;
+      misses = 0;
+      shields = MAX_SHIELDS;
+      speedMultiplier = 1.0;
+      canShoot = true;
+      if (scene) {
+        if (scene.spawnTimer) { scene.spawnTimer.remove(false); scene.spawnTimer = null; }
+        if (scene.shootTimer) { scene.shootTimer.remove(false); scene.shootTimer = null; }
+        // leftover asteroids/lasers from the last game would otherwise fall in and count as misses
+        if (asteroids) asteroids.clear(true, true);
+        if (lazerGroup) lazerGroup.clear(true, true);
+      }
+      updateScoreDisplay();
+    }
+
     function updateScoreDisplay() {
       document.getElementById('score-display').innerText = `Score: ${score} | Missed: ${misses}/${MISSES_ALLOWED}`;
     }
@@ -1252,6 +1271,8 @@ startButton.addEventListener("click", async () => {
     placeShip(game.scene.scenes[0], false);
 
     const sceneInstance = game.scene.scenes[0];
+    resetRoundState(sceneInstance);
+    updateTopBar().catch(console.error);
     setTimeout(() => {
       const countdownText = sceneInstance.add.text(sceneInstance.scale.width / 2, sceneInstance.scale.height / 2, "3", { 
         fontSize: `${Math.max(48 * baseScale, 60)}px`, fill: "#32FF9A", fontStyle: "bold",
