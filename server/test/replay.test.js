@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { checkPlausible } from "../guards.js";
 
-const html = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
+const html = readFileSync(new URL("../../game.js", import.meta.url), "utf8"); // game script (was inline in index.html)
 const resetSrc = html.match(/function resetRoundState\(scene\) \{[\s\S]*?\n    \}/)?.[0];
 
 function makeGroup(n) {
@@ -15,7 +15,7 @@ function makeGroup(n) {
 }
 
 test("resetRoundState clears score, misses, shields, leftover sprites and old timers", () => {
-  assert.ok(resetSrc, "resetRoundState missing from index.html");
+  assert.ok(resetSrc, "resetRoundState missing from game.js");
   const removed = [];
   const timer = (name) => ({ remove: () => removed.push(name) });
   const ctx = {
