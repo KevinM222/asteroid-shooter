@@ -5,26 +5,43 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
 const root = new URL("../../", import.meta.url);
-const html = readFileSync(new URL("index.html", root), "utf8");
+const page = readFileSync(new URL("index.html", root), "utf8");
+const gameJs = readFileSync(new URL("game.js", root), "utf8"); // the game script, loaded with defer
+const html = page + "\n" + gameJs; // content checks below look at both
 const vercel = JSON.parse(readFileSync(new URL("vercel.json", root), "utf8"));
 
 test("CSP script hashes match the inline scripts", () => {
   const csp = vercel.headers.flatMap((h) => h.headers).find((h) => /^Content-Security-Policy/.test(h.key) && /script-src/.test(h.value)).value;
-  for (const [, body] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+  for (const [, body] of page.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
     const h = "sha256-" + createHash("sha256").update(body).digest("base64");
     assert.ok(csp.includes(`'${h}'`), `CSP missing ${h}; update vercel.json`);
   }
 });
 
-test("self-hosted mini-app SDK matches its SRI hash", () => {
-  const m = html.match(/<script src="\/vendor\/miniapp-sdk\.js" integrity="(sha384-[^"]+)"/);
-  assert.ok(m, "SDK script tag missing");
+test("self-hosted mini-app SDK matches its SRI hash (lazy-loaded by game.js)", () => {
+  const m = gameJs.match(/const MINIAPP_SDK_SRI = '(sha384-[^']+)'/);
+  assert.ok(m, "MINIAPP_SDK_SRI missing");
   const h = "sha384-" + createHash("sha384").update(readFileSync(new URL("vendor/miniapp-sdk.js", root))).digest("base64");
   assert.equal(m[1], h);
 });
 
-test("index.html calls sdk.actions.ready()", () => {
-  assert.match(html, /fc\.actions\.ready\(\)/);
+test("game calls sdk.actions.ready() as soon as a mini-app host is detected", () => {
+  const init = gameJs.match(/async function initSdk\(\) \{[\s\S]*?\n    \}/)[0];
+  assert.match(init, /fc\.actions\.ready\(\)/);
+  assert.ok(init.indexOf("fc.actions.ready()") < init.indexOf("fc.context"), "ready() must come before the context lookup");
+});
+
+test("loading perf: deferred scripts in dependency order, SDK lazy-loaded, placeholder, preconnect", () => {
+  const order = ["phaser@3.80.1/dist/phaser.min.js", "ethers@6.11.1/dist/ethers.umd.min.js", "/game.js"].map((s) => page.indexOf(s));
+  assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], "phaser, ethers, game.js order");
+  for (const [tag] of page.matchAll(/<script src="[^"]+"[^>]*>/g)) assert.match(tag, /\bdefer\b/, `not deferred: ${tag}`);
+  assert.doesNotMatch(page, /<script src="\/vendor\/miniapp-sdk\.js"/, "SDK must not be a blocking tag");
+  assert.match(gameJs, /if \(!window\.ReactNativeWebView && window === window\.parent\) return Promise\.resolve\(null\);/);
+  assert.match(page, /<div id="game-loading"[^>]*>Loading game…<\/div>/);
+  assert.match(gameJs, /postBoot: \(\) => document\.getElementById\('game-loading'\)\?\.remove\(\)/);
+  assert.match(page, /<link rel="preconnect" href="https:\/\/cdn\.jsdelivr\.net" crossorigin/);
+  assert.match(page, /icon: '\/assets\/accumulator-96\.png'/);
+  assert.match(page, /url: 'https:\/\/accumulator-8\.vercel\.app'/);
 });
 
 test("X task: follow-intent link, opened outside the game, never by navigating the game window", () => {
