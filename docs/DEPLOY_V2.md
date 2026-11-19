@@ -116,7 +116,7 @@ Preview first:
 | `SCORE_SIGNER_PRIVATE_KEY` | yes | private key from step 0.3 |
 | `SESSION_SECRET` | yes | random, ≥32 chars (step 0.4) |
 | `LEADERBOARD_V2_ADDRESS` | yes | `$V2` |
-| `ALLOWED_ORIGIN` | yes for previews | the exact origin of the page calling the API (default `https://asteroid-shooter-alpha.vercel.app`) |
+| `ALLOWED_ORIGIN` | only for previews | extra origins allowed to call the API cross-origin, comma-separated. Always allowed: `https://asteroidsshooter.app`, `https://www.asteroidsshooter.app`, `https://asteroid-shooter-alpha.vercel.app` |
 | `BASE_RPC_URL` | recommended | a dedicated Base RPC (Alchemy/QuickNode/CDP). The public RPC rate-limits |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | recommended | shared rate limits across instances (Vercel Marketplace → Upstash). Without them, limits are per-instance |
 | `CHAIN_ID` | no | defaults to 8453 |
