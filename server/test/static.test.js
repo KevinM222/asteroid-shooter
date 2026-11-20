@@ -84,3 +84,23 @@ test("iOS / Coinbase Wallet browser: X app scheme from the game window, https on
   // ticket is started and awaited before the app switch
   assert.match(html, /await withTimeout\(startClickTicket\(id\), 4000, 'Task start'\)[\s\S]{0,80}\n\s*tryAppSchemes\(X_APP_URLS, a\.href\);/);
 });
+
+test("tilt steering: always on (no toggle), iOS permission asked once from the Start Game tap, calibrated each round, touch wins", () => {
+  const start = gameJs.indexOf('startButton.addEventListener("click", async () => {');
+  const firstAwait = gameJs.indexOf("await", start);
+  const ask = gameJs.indexOf("Tilt.requestOnGesture()", start);
+  assert.ok(ask > start && ask < firstAwait, "permission request must run before any await (keeps the iOS user gesture)");
+  assert.match(gameJs, /stored === 'denied'\) return/, "a denial is remembered and never re-prompted");
+  assert.match(gameJs, /localStorage\.setItem\(KEY, r\)/);
+  assert.match(gameJs, /Tilt\.calibrate\(\);[^\n]*\n\s*gameplayActive = true;/, "neutral re-calibrated at GO each round");
+  assert.match(gameJs, /else if \(!this\._drag\) ship\.x \+= Tilt\.step\(moveSpeed\)/, "a finger on screen overrides tilt; capped at ship speed");
+  assert.doesNotMatch(gameJs, /tiltEnabled/, "no toggle");
+});
+
+test("tilt off switch lives in the start-screen settings panel, defaults ON, persisted, and stops listening/asking when off", () => {
+  assert.match(page, /id="settings-btn"[^>]*aria-controls="settings-panel"/);
+  assert.match(page, /<input type="checkbox" id="tilt-setting" checked>/);
+  assert.match(gameJs, /localStorage\.getItem\(ON_KEY\) !== '0'/, "unset = ON");
+  assert.match(gameJs, /if \(asked \|\| !enabled\(\) \|\| !needsPermission\(\)\) return;/, "no prompt when off");
+  assert.match(gameJs, /if \(listening \|\| !enabled\(\)/, "no listener when off");
+});

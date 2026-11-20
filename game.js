@@ -518,13 +518,9 @@
         });
 
         const moveSpeed = 5 / baseScale;
-        if (this.tiltEnabled && Math.abs(this.tiltValue) > 5) {
-          const tiltSpeed = (this.tiltValue / 90) * 8;
-          ship.x += tiltSpeed;
-        } else {
-          if (keys.left.isDown) ship.x -= moveSpeed;
-          else if (keys.right.isDown) ship.x += moveSpeed;
-        }
+        if (keys.left.isDown) ship.x -= moveSpeed;
+        else if (keys.right.isDown) ship.x += moveSpeed;
+        else if (!this._drag) ship.x += Tilt.step(moveSpeed); // tilt steering; a finger on the screen always wins
 
         ship.x = Phaser.Math.Clamp(ship.x, shipHalfWidth(this), width - shipHalfWidth(this));
         if (ship.body) ship.body.reset(ship.x, ship.y);
@@ -852,6 +848,100 @@
       setTimeout(optimizeGameSize, 100);
     });
 
+    // ===== Tilt steering (always on alongside touch + keyboard; no toggle) =====
+    // iOS needs DeviceOrientationEvent.requestPermission() from a tap: we ask once, from Start Game, and remember the
+    // answer in localStorage so a "Don't Allow" never nags again. Android/others just get the event. Neutral is
+    // re-calibrated at GO each round, so whatever angle the phone is held at counts as level.
+    const Tilt = (() => {
+      const KEY = 'ast_tilt_perm_v1';
+      const DEAD = 3.5;      // degrees of wobble ignored
+      const FULL = 18;       // degrees past the dead zone for full (capped) ship speed
+      const SMOOTH = 0.25;   // low-pass factor per frame
+      const ON_KEY = 'ast_tilt_on';   // settings gear: '0' = off. Default (unset) = ON.
+      let raw = null, neutral = null, filtered = 0, listening = false, asked = false;
+      const enabled = () => { try { return localStorage.getItem(ON_KEY) !== '0'; } catch (e) { return true; } };
+      const screenAngle = () => {
+        const a = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle
+                : (typeof window.orientation === 'number' ? window.orientation : 0);
+        return ((a % 360) + 360) % 360;
+      };
+      // side-to-side tilt in degrees, + = right edge of the SCREEN tipped down
+      const axis = (e) => {
+        if (e.gamma == null || e.beta == null) return null;
+        switch (screenAngle()) {
+          case 90:  return e.beta;
+          case 270: return -e.beta;
+          case 180: return -e.gamma;
+          default:  return e.gamma;
+        }
+      };
+      const onOrient = (e) => {
+        const v = axis(e);
+        if (v == null || !isFinite(v)) return;
+        raw = v;
+        if (neutral == null) neutral = v;
+      };
+      const listen = () => {
+        if (listening || !enabled() || typeof window.DeviceOrientationEvent === 'undefined') return;
+        listening = true;
+        window.addEventListener('deviceorientation', onOrient);
+      };
+      const unlisten = () => {
+        if (listening) window.removeEventListener('deviceorientation', onOrient);
+        listening = false; raw = null; neutral = null; filtered = 0;
+      };
+      const needsPermission = () => typeof window.DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
+      let stored = null; try { stored = localStorage.getItem(KEY); } catch (e) {}
+      if (!needsPermission()) listen();             // Android / desktop: no prompt needed
+      else if (stored === 'granted') listen();      // harmless if iOS has since forgotten; re-asked silently below
+      return {
+        enabled,
+        // Settings gear switch. Called from the checkbox's change event, which is itself a tap, so turning tilt
+        // back on can show the iOS prompt right there (unless they denied it before).
+        setEnabled(on) {
+          try { localStorage.setItem(ON_KEY, on ? '1' : '0'); } catch (e) {}
+          if (!on) { unlisten(); return; }
+          if (!needsPermission()) { listen(); return; }
+          if (stored === 'granted') listen();
+          asked = false; this.requestOnGesture();
+        },
+        // MUST be called synchronously inside a tap handler (before any await) for iOS to show the prompt.
+        requestOnGesture() {
+          if (asked || !enabled() || !needsPermission()) return;
+          asked = true;
+          if (stored === 'denied') return;          // they said no once – never nag; touch still works
+          try {
+            DeviceOrientationEvent.requestPermission().then((r) => {
+              stored = r; try { localStorage.setItem(KEY, r); } catch (e) {}
+              if (r === 'granted') listen();
+            }).catch((e) => console.log('[tilt] permission unavailable:', e?.message || e));
+          } catch (e) { console.log('[tilt] permission unavailable:', e?.message || e); }
+        },
+        calibrate() { neutral = raw; filtered = 0; },   // raw null → first reading becomes neutral
+        // px to move this frame, proportional to tilt and capped at the ship's normal max speed
+        step(maxSpeed) {
+          if (!listening || raw == null || neutral == null) return 0;
+          let d = raw - neutral;
+          if (d > 180) d -= 360; else if (d < -180) d += 360;
+          filtered += (d - filtered) * SMOOTH;
+          const mag = Math.abs(filtered) - DEAD;
+          if (mag <= 0) return 0;
+          return Math.sign(filtered) * Math.min(1, mag / FULL) * maxSpeed;
+        },
+        state() { return { enabled: enabled(), listening, raw, neutral, filtered, stored }; }
+      };
+    })();
+    window.__astTilt = Tilt; // debug/test hook (no secrets)
+    // Settings gear on the start screen (the only setting so far: tilt steering on/off).
+    (() => {
+      const gear = document.getElementById('settings-btn'), panel = document.getElementById('settings-panel'), box = document.getElementById('tilt-setting');
+      if (!gear || !panel || !box) return;
+      box.checked = Tilt.enabled();
+      gear.addEventListener('click', () => { const open = panel.hidden; panel.hidden = !open; gear.setAttribute('aria-expanded', String(open)); });
+      box.addEventListener('change', () => Tilt.setEnabled(box.checked));
+    })();
+    window.addEventListener('orientationchange', () => setTimeout(() => Tilt.calibrate(), 300));
+
     // Fresh per-game state. Called on every start (first game AND Play Again) before the countdown.
     // Before this, score/misses/shields carried over: game 2 began at Missed 3/3 with game 1's score, so it
     // ended on the first miss and the server rightly rejected "score too high for game length".
@@ -1000,6 +1090,7 @@ async function dailyClaimReady() {
 }
 startButton.addEventListener("click", async () => {
   if (!userAddress) return uiAlert("Connect wallet first");
+  Tilt.requestOnGesture(); // iOS motion prompt (once, remembered) – must run before any await to keep the tap gesture
   freeClaimNeeded = false;
 
   // Check lives first
@@ -1081,6 +1172,7 @@ startButton.addEventListener("click", async () => {
         sceneInstance.time.delayedCall(600, () => {
           countdownText.destroy();
           gameEnded = false; resultsLocked = false;
+          Tilt.calibrate(); // the angle the phone is held at right now = level
           gameplayActive = true;
           sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
             delay: 1200, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
