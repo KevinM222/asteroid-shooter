@@ -134,6 +134,14 @@
     .more-apps a:hover { transform: scale(1.06); box-shadow: 0 0 14px var(--brand), 0 0 8px #F7931A, 0 0 10px #32FF9A inset; }
     .more-apps img { width: 18px; height: 18px; flex: none; object-fit: cover; border-radius: 50%; background: var(--brand); }
     body.game-mode #more-apps-home { display: none !important; }
+    /* Settings gear: small and quiet next to Start Game; panel holds the tilt on/off switch. */
+    #settings-btn { padding: 2px 7px !important; margin: 2px !important; font-size: 15px !important; line-height: 1.4; min-width: 0; background: transparent !important; border: 1px solid #333 !important; box-shadow: none !important; color: #8a93b8 !important; vertical-align: middle; }
+    #settings-btn[aria-expanded="true"] { color: #32FF9A !important; border-color: #32FF9A !important; }
+    #settings-panel { margin: 4px auto; padding: 6px 10px; max-width: 300px; font-size: 13px; color: #ccc; border: 1px solid #333; border-radius: 8px; background: rgba(10,15,46,.85); text-align: center; }
+    #settings-panel[hidden] { display: none; }
+    #settings-panel input { vertical-align: middle; accent-color: #32FF9A; }
+    #settings-panel .settings-hint { color: #777; font-size: 11px; }
+    body.game-mode #settings-btn, body.game-mode #settings-panel { display: none !important; }
   </style>
 </head>
 <body>
@@ -163,6 +171,10 @@
   <div style="text-align:center">
     <button id="connect-wallet">Connect Wallet</button>
     <button id="start-game" disabled>Start Game</button>
+    <button id="settings-btn" type="button" aria-label="Settings" aria-expanded="false" aria-controls="settings-panel" title="Settings">⚙</button>
+  </div>
+  <div id="settings-panel" hidden>
+    <label><input type="checkbox" id="tilt-setting" checked> Tilt steering <span class="settings-hint">(tilt your phone to move the ship)</span></label>
   </div>
   <div class="more-apps" id="more-apps-home"></div>
 
