@@ -53,6 +53,7 @@
       'function grantUsed(address, uint256) view returns (bool)',
       'function packPrice(uint256 lives) view returns (uint256)',
       'function nextDailyClaimAt(address player) view returns (uint256)',
+      'function lastDailyClaim(address) view returns (uint256)',
       'function dailyCooldown() view returns (uint256)',
       'function dailyLives() view returns (uint256)',
       'function prizePot() view returns (uint256)',
@@ -496,7 +497,12 @@
         // re-touching near the middle snapped it back toward the center.
         this._drag = null;
         this.input.on('pointerdown', (pointer) => { this._drag = { id: pointer.id, px: pointer.x, sx: ship.x }; });
-        const endDrag = (pointer) => { if (this._drag && this._drag.id === pointer.id) this._drag = null; };
+        const endDrag = (pointer) => {
+          if (this._drag && this._drag.id === pointer.id) {
+            this._drag = null;
+            if (gameplayActive) Tilt.settle(250); // ship stays where the finger left it; current angle becomes level
+          }
+        };
         this.input.on('pointerup', endDrag); this.input.on('pointerupoutside', endDrag);
         this.input.on('pointermove', (pointer) => {
           if (!gameplayActive || !pointer.isDown) return;
@@ -633,6 +639,7 @@
         if (gameEnded) { console.warn('[gameOver] ignored duplicate call'); return; }
         gameEnded = true;
         gameplayActive = false;
+        Awake.off();
         if (this.shootTimer) this.shootTimer.paused = true;
         if (this.spawnTimer) this.spawnTimer.paused = true;
         if (speedRampTimer) speedRampTimer.remove();
@@ -826,6 +833,92 @@
       const t = Math.round(c.getBoundingClientRect().top) + '|' + visibleHeight();
       if (t !== _lastTop) { _lastTop = t; optimizeGameSize(); }
     }, 400);
+    // ===== Keep the screen awake during a round (tilt players may not touch the screen for a while) =====
+    // Two layers, both started from the Start Game TAP (a user gesture) and kept through countdown + round:
+    //  1. Screen Wake Lock API (navigator.wakeLock) where it exists.
+    //  2. NoSleep-style video, ALWAYS on iOS/iPadOS (WKWebView in Coinbase Wallet / X shipped a navigator.wakeLock
+    //     that silently did nothing before iOS 18.4) and anywhere the API is missing or refuses.
+    //     WebKit only keeps the display on for a PLAYING, UN-muted video WITH an audio track and WITHOUT the loop
+    //     attribute (loop / muted / no audio = screen may sleep). So: a 3 s H.264+silent-AAC clip, unmuted (the track is
+    //     silent; the game has no sound of its own), played inside the tap, and kept going by seeking back on
+    //     timeupdate instead of `loop` (same trick as NoSleep.js). It is created only on those browsers.
+    // Released at game over / leaving play; re-acquired when the page becomes visible again and on any tap during play.
+    // Everything fails silently. Debug: __astWake.state(), or add ?debug=wake to the URL for a tiny status overlay.
+    const Awake = (() => {
+      const ua = navigator.userAgent || '';
+      const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      let want = false, lock = null, video = null, lockErr = '', videoErr = '', requests = 0;
+      const hasApi = () => !!(navigator.wakeLock && typeof navigator.wakeLock.request === 'function');
+      const needVideo = () => isIOS || !hasApi() || !!lockErr;
+      const makeVideo = () => {
+        if (video) return video;
+        video = document.createElement('video');
+        video.setAttribute('title', 'Keep screen awake');
+        video.setAttribute('playsinline', ''); video.setAttribute('webkit-playsinline', ''); video.playsInline = true;
+        video.setAttribute('aria-hidden', 'true');
+        video.muted = false;           // see note above: muted video does not hold the display on iOS
+        video.preload = 'auto';
+        video.src = '/assets/keepawake.mp4';
+        video.style.cssText = 'position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:0';
+        video.addEventListener('timeupdate', () => { if (video.duration > 1 && video.currentTime > video.duration - 1) video.currentTime = 0.1 + Math.random() * 0.3; });
+        video.addEventListener('ended', () => { if (want) { video.currentTime = 0; playVideo(); } });
+        video.addEventListener('error', () => { videoErr = 'media error ' + (video.error && video.error.code); });
+        document.body.appendChild(video);
+        return video;
+      };
+      const playVideo = () => {
+        try {
+          const v = makeVideo();
+          if (!v.paused) return;
+          const pr = v.play();
+          if (pr && pr.then) pr.then(() => { videoErr = ''; if (!want) v.pause(); }).catch((e) => { videoErr = (e && e.name) || String(e); });
+        } catch (e) { videoErr = (e && e.name) || String(e); }
+      };
+      const requestLock = () => {
+        if (!hasApi() || lock || document.visibilityState !== 'visible') return;
+        requests++;
+        try {
+          navigator.wakeLock.request('screen').then((l) => {
+            if (!want) { l.release().catch(() => {}); return; }
+            lock = l; lockErr = '';
+            l.addEventListener('release', () => { if (lock === l) lock = null; });
+          }).catch((e) => { lockErr = (e && e.name) || String(e); if (want) playVideo(); });
+        } catch (e) { lockErr = (e && e.name) || String(e); if (want) playVideo(); }
+      };
+      const acquire = () => {
+        if (!want) return;
+        requestLock();
+        if (needVideo()) playVideo();
+      };
+      document.addEventListener('visibilitychange', () => { if (want && document.visibilityState === 'visible') acquire(); });
+      // any tap while a round runs is a fresh user gesture: re-assert (cheap no-op when already held)
+      document.addEventListener('pointerdown', () => { if (want) acquire(); }, true);
+      const api = {
+        // Call synchronously inside the Start Game tap (before any await).
+        on() { want = true; acquire(); },
+        off() {
+          want = false;
+          if (lock) { const l = lock; lock = null; l.release().catch(() => {}); }
+          if (video) try { video.pause(); } catch (e) {}
+        },
+        state() {
+          return { want, isIOS, api: hasApi(), locked: !!lock, lockErr, requests, videoUsed: !!video,
+                   videoPlaying: !!video && !video.paused, videoTime: video ? +video.currentTime.toFixed(2) : null,
+                   videoReady: video ? video.readyState : null, videoErr, visible: document.visibilityState };
+        }
+      };
+      if (/[?&]debug=wake\b/.test(location.search)) {
+        const box = document.createElement('div');
+        box.style.cssText = 'position:fixed;right:4px;bottom:calc(env(safe-area-inset-bottom,0px) + 4px);z-index:10001;background:rgba(0,0,0,.75);color:#0f0;font:11px/1.3 monospace;padding:4px 6px;border:1px solid #0f0;pointer-events:none;white-space:pre;text-align:left';
+        const draw = () => { const st = api.state(); box.textContent = 'wake ' + Object.entries(st).map(([k, v]) => k + '=' + v).join('\n'); };
+        document.addEventListener('DOMContentLoaded', () => document.body.appendChild(box));
+        setInterval(draw, 500); draw();
+      }
+      return api;
+    })();
+    window.__astAwake = Awake; // debug/test hook
+    window.__astWake = Awake;
+
     function enterPlayMode() {
       window.scrollTo(0, 0);
       document.body.classList.add('game-mode');
@@ -834,6 +927,7 @@
       setTimeout(optimizeGameSize, 60); setTimeout(optimizeGameSize, 300);
     }
     function exitPlayMode() {
+      Awake.off();
       document.body.classList.remove('game-mode');
       optimizeGameSize(); setTimeout(optimizeGameSize, 60);
     }
@@ -854,11 +948,24 @@
     // re-calibrated at GO each round, so whatever angle the phone is held at counts as level.
     const Tilt = (() => {
       const KEY = 'ast_tilt_perm_v1';
-      const DEAD = 3.5;      // degrees of wobble ignored
+      const DEAD = 5;        // degrees of wobble ignored (a phone flat on a table with a camera bump tips ~2-4°)
       const FULL = 18;       // degrees past the dead zone for full (capped) ship speed
       const SMOOTH = 0.25;   // low-pass factor per frame
       const ON_KEY = 'ast_tilt_on';   // settings gear: '0' = off. Default (unset) = ON.
+      const RECENTER_BAND = 2.5;  // a steady tilt within DEAD+this degrees of level ...
+      const RECENTER_AFTER = 1200; // ... held this long (ms) slowly becomes the new level, so a constant slight tip never creeps
+      const RECENTER_RATE = 0.04;  // per-frame easing of neutral toward the resting angle once recentering
       let raw = null, neutral = null, filtered = 0, listening = false, asked = false;
+      // settle window: tilt is muted, readings are averaged, and the average becomes the new neutral
+      let settleUntil = 0, settleSum = 0, settleN = 0;
+      let slowRaw = null, steadySince = 0;
+      const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const finishSettle = () => {
+        if (!settleUntil || now() < settleUntil) return;
+        settleUntil = 0;
+        if (settleN > 0) neutral = settleSum / settleN; else if (raw != null) neutral = raw; else neutral = null;
+        filtered = 0; steadySince = 0;
+      };
       const enabled = () => { try { return localStorage.getItem(ON_KEY) !== '0'; } catch (e) { return true; } };
       const screenAngle = () => {
         const a = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle
@@ -879,6 +986,7 @@
         const v = axis(e);
         if (v == null || !isFinite(v)) return;
         raw = v;
+        if (settleUntil) { settleSum += v; settleN++; finishSettle(); return; }
         if (neutral == null) neutral = v;
       };
       const listen = () => {
@@ -917,18 +1025,30 @@
             }).catch((e) => console.log('[tilt] permission unavailable:', e?.message || e));
           } catch (e) { console.log('[tilt] permission unavailable:', e?.message || e); }
         },
-        calibrate() { neutral = raw; filtered = 0; },   // raw null → first reading becomes neutral
+        // Mute tilt for `ms`, average the readings in that window and make it the new level. Used at GO (200 ms)
+        // and when a finger lets go of the ship (250 ms), so releasing leaves the ship parked instead of creeping.
+        settle(ms) { settleUntil = now() + ms; settleSum = 0; settleN = 0; filtered = 0; steadySince = 0; },
+        calibrate() { this.settle(200); },
         // px to move this frame, proportional to tilt and capped at the ship's normal max speed
         step(maxSpeed) {
-          if (!listening || raw == null || neutral == null) return 0;
+          if (!listening || raw == null) return 0;
+          if (settleUntil) { finishSettle(); if (settleUntil) return 0; }
+          if (neutral == null) return 0;
           let d = raw - neutral;
           if (d > 180) d -= 360; else if (d < -180) d += 360;
           filtered += (d - filtered) * SMOOTH;
+          // slow auto-recenter: small AND steady tilt for a few seconds = the surface/grip, not steering
+          slowRaw = slowRaw == null ? raw : slowRaw + (raw - slowRaw) * 0.05;
+          const t = now();
+          if (Math.abs(d) < DEAD + RECENTER_BAND && Math.abs(raw - slowRaw) < 0.75) {
+            if (!steadySince) steadySince = t;
+            else if (t - steadySince > RECENTER_AFTER) { neutral += (raw - neutral) * RECENTER_RATE; filtered *= (1 - RECENTER_RATE); }
+          } else steadySince = 0;
           const mag = Math.abs(filtered) - DEAD;
           if (mag <= 0) return 0;
           return Math.sign(filtered) * Math.min(1, mag / FULL) * maxSpeed;
         },
-        state() { return { enabled: enabled(), listening, raw, neutral, filtered, stored }; }
+        state() { return { enabled: enabled(), listening, raw, neutral, filtered, stored, settling: !!settleUntil }; }
       };
     })();
     window.__astTilt = Tilt; // debug/test hook (no secrets)
@@ -1090,6 +1210,7 @@ async function dailyClaimReady() {
 }
 startButton.addEventListener("click", async () => {
   if (!userAddress) return uiAlert("Connect wallet first");
+  Awake.on();              // wake lock + iOS video, from the tap itself (a later timer is not a user gesture on iOS)
   Tilt.requestOnGesture(); // iOS motion prompt (once, remembered) – must run before any await to keep the tap gesture
   freeClaimNeeded = false;
 
@@ -1104,7 +1225,8 @@ startButton.addEventListener("click", async () => {
         freeClaimNeeded = useV2 && (await dailyClaimReady());
         if (!freeClaimNeeded) {
           let when = '';
-          try { const next = Number(await c.nextDailyClaimAt(userAddress)); if (next) when = ' Next free life: ' + new Date(next * 1000).toLocaleString(); } catch (e) {}
+          try { const next = Number(await c.nextDailyClaimAt(userAddress)); if (next) when = ' Next free life: ' + fmtWhen(next * 1000) + '.'; } catch (e) {}
+          Awake.off();
           return uiAlert("You have 0 lives." + when);
         }
       }
@@ -1113,7 +1235,7 @@ startButton.addEventListener("click", async () => {
     }
   }
 
-  if (lives !== null && lives <= 0 && !freeClaimNeeded) return uiAlert("No lives left!");
+  if (lives !== null && lives <= 0 && !freeClaimNeeded) { Awake.off(); return uiAlert("No lives left!"); }
 
   startButton.disabled = true;
   const playerName = cleanPlayerName(sdk?.context?.user?.username || document.getElementById('whoami').textContent, "Guest");
@@ -1121,7 +1243,8 @@ startButton.addEventListener("click", async () => {
   try {
     if (contractsConfigured && signer) {
       const contract = new ethers.Contract(leaderboardAddress, lbAbi, signer);
-      startButton.innerText = 'Starting… confirm in wallet';
+      startButton.innerText = freeClaimNeeded ? 'Using your free daily life… confirm in wallet' : 'Starting… confirm in wallet';
+      if (freeClaimNeeded) { setText('daily-timer', 'Using your free daily life…'); uiToast('Using your free daily life for this game'); }
       currentGame = null;
       if (useV2) {
         const before = BigInt(await lbRead().gamesStarted(userAddress));
@@ -1137,6 +1260,7 @@ startButton.addEventListener("click", async () => {
         }
         calls.push(startCall);
         await sendAndConfirm(calls, async () => BigInt(await lbRead().gamesStarted(userAddress)) > before, freeClaimNeeded ? 'Claim free life + start' : 'Start game');
+        refreshDailyFromChain().catch(() => {}); // the batch may have used the free life – never leave "Ready!" stale
         const gameId = BigInt(await lbRead().gamesStarted(userAddress));
         console.log('[start] game id', gameId.toString());
         startButton.innerText = 'Opening score session…';
@@ -1173,6 +1297,7 @@ startButton.addEventListener("click", async () => {
           countdownText.destroy();
           gameEnded = false; resultsLocked = false;
           Tilt.calibrate(); // the angle the phone is held at right now = level
+          Awake.on();       // re-assert for the round (already started by the tap)
           gameplayActive = true;
           sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
             delay: 1200, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 
@@ -1190,6 +1315,7 @@ startButton.addEventListener("click", async () => {
     startButton.innerText = 'Start Game';
     startButton.disabled = false;
     exitPlayMode();
+    refreshDailyFromChain().catch(() => {}); // a half-done claim+start (or a rejected one) – show what the chain says
   }
 });
 
@@ -1426,14 +1552,30 @@ startButton.addEventListener("click", async () => {
     }
 
     let nextDailyAtMs = 0; // v2: from nextDailyClaimAt() on-chain
+    let lastDailyAtMs = 0; // v2: from lastDailyClaim() on-chain (0 = never claimed)
+    // "today at 8:37 PM" / "tomorrow at 8:37 PM" / "Fri 8:37 PM", in the player's own time zone
+    function fmtWhen(ms) {
+      const d = new Date(ms), now = new Date();
+      const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+      const diff = Math.round((day(d) - day(now)) / 86400000);
+      if (diff === 0) return 'today at ' + t;
+      if (diff === 1) return 'tomorrow at ' + t;
+      if (diff === -1) return 'yesterday at ' + t;
+      return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + t;
+    }
     async function refreshDailyFromChain() {
       if (!useV2 || !provider || !userAddress) return;
       try {
         const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
-        nextDailyAtMs = Number(await c.nextDailyClaimAt(userAddress)) * 1000;
+        const [next, last] = await Promise.all([c.nextDailyClaimAt(userAddress), c.lastDailyClaim(userAddress).catch(() => 0n)]);
+        nextDailyAtMs = Number(next) * 1000;
+        lastDailyAtMs = Number(last) * 1000;
       } catch (e) { console.error('nextDailyClaimAt failed', e); }
       updateDailyClaim();
     }
+    // coming back to the tab/app (e.g. after a day away, or from the wallet) re-reads the chain
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshDailyFromChain().catch(() => {}); });
     function updateDailyClaim() {
       const now = Date.now();
       const btn = document.getElementById("claim-daily");
@@ -1445,7 +1587,8 @@ startButton.addEventListener("click", async () => {
         btn.disabled = true;
         const h = Math.floor(timeLeft / 3600000);
         const m = Math.floor((timeLeft % 3600000) / 60000);
-        timer.innerText = `Next in ${h}h ${m}m`;
+        const used = lastDailyAtMs ? `Used ${fmtWhen(lastDailyAtMs)} · ` : '';
+        timer.innerText = `${used}Next free life: ${fmtWhen(nextDailyAtMs)} (in ${h}h ${m}m)`;
       } else {
         btn.disabled = false;
         timer.innerText = "Ready!";

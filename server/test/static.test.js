@@ -92,7 +92,7 @@ test("tilt steering: always on (no toggle), iOS permission asked once from the S
   assert.ok(ask > start && ask < firstAwait, "permission request must run before any await (keeps the iOS user gesture)");
   assert.match(gameJs, /stored === 'denied'\) return/, "a denial is remembered and never re-prompted");
   assert.match(gameJs, /localStorage\.setItem\(KEY, r\)/);
-  assert.match(gameJs, /Tilt\.calibrate\(\);[^\n]*\n\s*gameplayActive = true;/, "neutral re-calibrated at GO each round");
+  assert.match(gameJs, /Tilt\.calibrate\(\);[^\n]*\n(?:\s*Awake\.on\(\);[^\n]*\n)?\s*gameplayActive = true;/, "neutral re-calibrated at GO each round");
   assert.match(gameJs, /else if \(!this\._drag\) ship\.x \+= Tilt\.step\(moveSpeed\)/, "a finger on screen overrides tilt; capped at ship speed");
   assert.doesNotMatch(gameJs, /tiltEnabled/, "no toggle");
 });
@@ -103,4 +103,38 @@ test("tilt off switch lives in the start-screen settings panel, defaults ON, per
   assert.match(gameJs, /localStorage\.getItem\(ON_KEY\) !== '0'/, "unset = ON");
   assert.match(gameJs, /if \(asked \|\| !enabled\(\) \|\| !needsPermission\(\)\) return;/, "no prompt when off");
   assert.match(gameJs, /if \(listening \|\| !enabled\(\)/, "no listener when off");
+});
+
+test("tilt drift fix: 5° dead zone, finger release re-levels after a settle window, slow auto-recenter", () => {
+  assert.match(gameJs, /const DEAD = 5;/);
+  assert.match(gameJs, /this\._drag = null;\s*\n\s*if \(gameplayActive\) Tilt\.settle\(250\);/, "release parks the ship");
+  assert.match(gameJs, /calibrate\(\) \{ this\.settle\(200\); \}/, "GO averages ~200 ms of readings");
+  assert.match(gameJs, /neutral = settleSum \/ settleN/);
+  assert.match(gameJs, /RECENTER_AFTER/);
+});
+
+test("daily free life UI: auto-claim message, chain re-read after start and on return, local next/used times", () => {
+  assert.match(gameJs, /freeClaimNeeded \? 'Using your free daily life… confirm in wallet'/);
+  assert.match(gameJs, /sendAndConfirm\(calls[^\n]*\n\s*refreshDailyFromChain\(\)/, "re-read right after the start/claim confirms");
+  assert.match(gameJs, /visibilitychange', \(\) => \{ if \(document\.visibilityState === 'visible'\) refreshDailyFromChain\(\)/);
+  assert.match(gameJs, /Next free life: \$\{fmtWhen\(nextDailyAtMs\)\}/);
+  assert.match(gameJs, /'function lastDailyClaim\(address\) view returns \(uint256\)'/);
+});
+
+test("screen wake lock: on at GO, off at game over / leaving play, re-acquired on return, silent fallback video", () => {
+  assert.match(gameJs, /navigator\.wakeLock\.request\('screen'\)/);
+  assert.match(gameJs, /Awake\.on\(\);[^\n]*\n\s*gameplayActive = true;/);
+  assert.match(gameJs, /gameplayActive = false;\n\s*Awake\.off\(\);/, "released at game over");
+  assert.match(gameJs, /function exitPlayMode\(\) \{\n\s*Awake\.off\(\);/);
+  assert.match(gameJs, /if \(want && document\.visibilityState === 'visible'\) acquire\(\)/);
+  const start = gameJs.indexOf('startButton.addEventListener("click", async () => {');
+  const on = gameJs.indexOf("Awake.on()", start);
+  assert.ok(on > start && on < gameJs.indexOf("await", start), "wake lock + video started inside the tap, before any await");
+  assert.match(gameJs, /const needVideo = \(\) => isIOS \|\| !hasApi\(\) \|\| !!lockErr;/, "video also runs on iOS even when navigator.wakeLock exists");
+  assert.match(gameJs, /video\.muted = false;/, "WebKit ignores muted video for display sleep");
+  assert.doesNotMatch(gameJs, /video\.loop = true/, "WebKit ignores looping video for display sleep");
+  assert.match(gameJs, /addEventListener\('timeupdate'/);
+  assert.match(gameJs, /debug=wake/);
+  assert.ok(readFileSync(new URL("assets/keepawake.mp4", root)).length < 10000, "fallback video stays tiny");
+  assert.match(vercel.headers[0].headers.find((h) => h.key === "Content-Security-Policy-Report-Only").value, /media-src 'self'/);
 });
