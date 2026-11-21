@@ -639,6 +639,7 @@
         if (gameEnded) { console.warn('[gameOver] ignored duplicate call'); return; }
         gameEnded = true;
         gameplayActive = false;
+        Awake.off();
         if (this.shootTimer) this.shootTimer.paused = true;
         if (this.spawnTimer) this.spawnTimer.paused = true;
         if (speedRampTimer) speedRampTimer.remove();
@@ -832,6 +833,53 @@
       const t = Math.round(c.getBoundingClientRect().top) + '|' + visibleHeight();
       if (t !== _lastTop) { _lastTop = t; optimizeGameSize(); }
     }, 400);
+    // ===== Keep the screen awake during a round (tilt players may not touch the screen for a while) =====
+    // Screen Wake Lock API where available (iOS 16.4+ Safari, Android Chrome). The OS drops the lock whenever the
+    // page is hidden, so it is re-requested on return while a round is running. Browsers without the API (older iOS,
+    // some in-app WebViews) get a NoSleep-style fallback: a 2 KB muted, looping, invisible inline video, created only
+    // on those browsers, unlocked by the Start Game tap. Everything fails silently.
+    const Awake = (() => {
+      let want = false, lock = null, video = null;
+      const hasApi = () => !!(navigator.wakeLock && typeof navigator.wakeLock.request === 'function');
+      const makeVideo = () => {
+        if (video) return video;
+        video = document.createElement('video');
+        video.muted = true; video.loop = true; video.playsInline = true;
+        video.setAttribute('muted', ''); video.setAttribute('playsinline', ''); video.setAttribute('aria-hidden', 'true');
+        video.preload = 'auto'; video.src = '/assets/keepawake.mp4';
+        video.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1';
+        document.body.appendChild(video);
+        return video;
+      };
+      const playVideo = () => { try { const v = makeVideo(); const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) {} };
+      const acquire = () => {
+        if (document.visibilityState !== 'visible') return;
+        if (hasApi()) {
+          if (lock) return;
+          navigator.wakeLock.request('screen').then((l) => {
+            if (!want) { l.release().catch(() => {}); return; }
+            lock = l; l.addEventListener('release', () => { if (lock === l) lock = null; });
+          }).catch((e) => { console.log('[awake] wake lock refused:', e?.name || e); if (want) playVideo(); });
+        } else playVideo();
+      };
+      document.addEventListener('visibilitychange', () => { if (want && document.visibilityState === 'visible') acquire(); });
+      return {
+        // Start Game tap (user gesture): lets the fallback video play later without a tap (iOS Low Power Mode etc.)
+        prime() {
+          if (hasApi() || video) return;
+          try { const v = makeVideo(); const pr = v.play(); if (pr && pr.then) pr.then(() => { if (!want) v.pause(); }).catch(() => {}); } catch (e) {}
+        },
+        on() { want = true; acquire(); },
+        off() {
+          want = false;
+          if (lock) { const l = lock; lock = null; l.release().catch(() => {}); }
+          if (video) try { video.pause(); } catch (e) {}
+        },
+        state() { return { want, locked: !!lock, api: hasApi(), video: !!video && !video.paused }; }
+      };
+    })();
+    window.__astAwake = Awake; // debug/test hook
+
     function enterPlayMode() {
       window.scrollTo(0, 0);
       document.body.classList.add('game-mode');
@@ -840,6 +888,7 @@
       setTimeout(optimizeGameSize, 60); setTimeout(optimizeGameSize, 300);
     }
     function exitPlayMode() {
+      Awake.off();
       document.body.classList.remove('game-mode');
       optimizeGameSize(); setTimeout(optimizeGameSize, 60);
     }
@@ -1122,6 +1171,7 @@ async function dailyClaimReady() {
 }
 startButton.addEventListener("click", async () => {
   if (!userAddress) return uiAlert("Connect wallet first");
+  Awake.prime();           // no-op where the Wake Lock API exists; unlocks the fallback video otherwise
   Tilt.requestOnGesture(); // iOS motion prompt (once, remembered) – must run before any await to keep the tap gesture
   freeClaimNeeded = false;
 
@@ -1207,6 +1257,7 @@ startButton.addEventListener("click", async () => {
           countdownText.destroy();
           gameEnded = false; resultsLocked = false;
           Tilt.calibrate(); // the angle the phone is held at right now = level
+          Awake.on();       // keep the screen on for the round
           gameplayActive = true;
           sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
             delay: 1200, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 

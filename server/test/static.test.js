@@ -92,7 +92,7 @@ test("tilt steering: always on (no toggle), iOS permission asked once from the S
   assert.ok(ask > start && ask < firstAwait, "permission request must run before any await (keeps the iOS user gesture)");
   assert.match(gameJs, /stored === 'denied'\) return/, "a denial is remembered and never re-prompted");
   assert.match(gameJs, /localStorage\.setItem\(KEY, r\)/);
-  assert.match(gameJs, /Tilt\.calibrate\(\);[^\n]*\n\s*gameplayActive = true;/, "neutral re-calibrated at GO each round");
+  assert.match(gameJs, /Tilt\.calibrate\(\);[^\n]*\n(?:\s*Awake\.on\(\);[^\n]*\n)?\s*gameplayActive = true;/, "neutral re-calibrated at GO each round");
   assert.match(gameJs, /else if \(!this\._drag\) ship\.x \+= Tilt\.step\(moveSpeed\)/, "a finger on screen overrides tilt; capped at ship speed");
   assert.doesNotMatch(gameJs, /tiltEnabled/, "no toggle");
 });
@@ -119,4 +119,17 @@ test("daily free life UI: auto-claim message, chain re-read after start and on r
   assert.match(gameJs, /visibilitychange', \(\) => \{ if \(document\.visibilityState === 'visible'\) refreshDailyFromChain\(\)/);
   assert.match(gameJs, /Next free life: \$\{fmtWhen\(nextDailyAtMs\)\}/);
   assert.match(gameJs, /'function lastDailyClaim\(address\) view returns \(uint256\)'/);
+});
+
+test("screen wake lock: on at GO, off at game over / leaving play, re-acquired on return, silent fallback video", () => {
+  assert.match(gameJs, /navigator\.wakeLock\.request\('screen'\)/);
+  assert.match(gameJs, /Awake\.on\(\);[^\n]*\n\s*gameplayActive = true;/);
+  assert.match(gameJs, /gameplayActive = false;\n\s*Awake\.off\(\);/, "released at game over");
+  assert.match(gameJs, /function exitPlayMode\(\) \{\n\s*Awake\.off\(\);/);
+  assert.match(gameJs, /if \(want && document\.visibilityState === 'visible'\) acquire\(\)/);
+  const start = gameJs.indexOf('startButton.addEventListener("click", async () => {');
+  const prime = gameJs.indexOf("Awake.prime()", start);
+  assert.ok(prime > start && prime < gameJs.indexOf("await", start), "fallback unlocked inside the tap, before any await");
+  assert.ok(readFileSync(new URL("assets/keepawake.mp4", root)).length < 10000, "fallback video stays tiny");
+  assert.match(vercel.headers[0].headers.find((h) => h.key === "Content-Security-Policy-Report-Only").value, /media-src 'self'/);
 });
