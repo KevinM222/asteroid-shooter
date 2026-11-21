@@ -138,3 +138,39 @@ test("screen wake lock: on at GO, off at game over / leaving play, re-acquired o
   assert.ok(readFileSync(new URL("assets/keepawake.mp4", root)).length < 10000, "fallback video stays tiny");
   assert.match(vercel.headers[0].headers.find((h) => h.key === "Content-Security-Policy-Report-Only").value, /media-src 'self'/);
 });
+
+test("sign-in SDKs: self-hosted, SRI-pinned, lazy-loaded only (no new first-load scripts)", () => {
+  for (const [name, file] of [["BASE_ACCOUNT_SRI", "vendor/base-account.js"], ["CDP_SRI", "vendor/cdp-embedded.js"]]) {
+    const m = gameJs.match(new RegExp(`const ${name} = '(sha384-[^']+)'`));
+    assert.ok(m, `${name} missing`);
+    const h = "sha384-" + createHash("sha384").update(readFileSync(new URL(file, root))).digest("base64");
+    assert.equal(m[1], h, `${file} does not match ${name}; rebuild and update the hash`);
+    assert.ok(!page.includes(file), `${file} must not be a first-load script`);
+  }
+  assert.match(gameJs, /s\.integrity = sri/);
+  assert.match(gameJs, /crossOrigin = 'anonymous'/);
+  // first-load scripts unchanged vs PR #17
+  const srcs = [...page.matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(srcs.every((s) => !/vendor\/(base-account|cdp-embedded)/.test(s)));
+});
+
+test("provider order: injected wallet first, then EIP-6963, then mini-app; chooser only when nothing is available", () => {
+  assert.match(gameJs, /chosenProvider \|\| window\.ethereum \|\| eip6963\[0\]\?\.provider \|\| fcProvider/);
+  assert.match(gameJs, /function openSignInChooser\(/);
+  assert.match(gameJs, /createOnLogin: 'smart'/);
+  assert.match(gameJs, /eth_requestAccounts/);
+});
+
+test("sign-in chooser + Add funds UI present, hidden in game mode, email/SMS gated on config", () => {
+  for (const id of ["add-funds", "add-funds-panel", "fund-usdc5", "fund-usdc10", "fund-eth3", "sign-out-row", "sign-out"]) assert.ok(page.includes(`id="${id}"`), id);
+  assert.match(page, /body\.game-mode #add-funds, body\.game-mode #add-funds-panel \{ display: none !important; \}/);
+  assert.ok(page.includes('<div class="fund-row"><button id="add-funds"'), "Add funds sits in its own row (the buy row hides when nothing is for sale)");
+  assert.match(gameJs, /cdpProjectId/);
+  assert.match(gameJs, /\/api\/onramp/);
+  assert.match(gameJs, /ast_onramp_pending/);
+});
+
+test("CSP allows the CDP / Base Account hosts the lazy SDKs talk to", () => {
+  const csp = vercel.headers.flatMap((h) => h.headers).find((h) => /^Content-Security-Policy/.test(h.key) && /script-src/.test(h.value)).value;
+  for (const host of ["https://api.cdp.coinbase.com", "https://keys.coinbase.com", "https://secure-wallet.cdp.coinbase.com"]) assert.ok(csp.includes(host), host);
+});

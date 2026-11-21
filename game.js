@@ -1101,6 +1101,218 @@
       } catch (e) { console.error('Personal high fetch error', e); }
     }
 
+    // ===== Easier sign-in for normal browsers (Phase 1) =====
+    // Order: (a) injected wallet (Coinbase Wallet / Base app / MetaMask browser) – used as before, never a 2nd wallet;
+    // (b) Farcaster / Base mini-app provider (sdk.isInMiniApp + getEthereumProvider, with timeouts – see initSdk);
+    // (c) otherwise a sign-in choice: "Sign in with Base" (Base Account passkey, @base-org/account) or email / SMS code
+    //     (CDP Embedded Wallet, smart account, @coinbase/cdp-core; only when CDP_PROJECT_ID is set).
+    // SDKs are self-hosted in /vendor with SRI and fetched ONLY when the chooser opens / an option is picked, so the
+    // first load is unchanged. Whatever address the provider returns is the player everywhere (contract msg.sender,
+    // /api/session, /api/score), exactly like the injected flow. Choice is remembered for silent restore on reload.
+    const SIGNIN_KEY = 'ast_signin_v1';               // 'base' | 'cdp'
+    const BASE_ACCOUNT_SRI = 'sha384-SNEt1WtBd8fzpPKZtP433uByzYa9VGkKYSrehcIuDkil0SkQ3i5fVQfPg6ke0W6A';
+    const CDP_SRI = 'sha384-R5pUBVjpfr8wYYSYToCIR4fvhCtwzEFnFtIWu/N2THDRzbEDXqn/eSOYbHVYUvP6';
+    let appConfig = null, appConfigP = null;
+    function loadAppConfig() {
+      if (appConfig) return Promise.resolve(appConfig);
+      return appConfigP ||= fetch('/api/config', { credentials: 'same-origin' }).then((r) => r.ok ? r.json() : {}).catch(() => ({}))
+        .then((j) => (appConfig = { onramp: !!j.onramp, cdpProjectId: typeof j.cdpProjectId === 'string' ? j.cdpProjectId : null }));
+    }
+    const _scripts = {};
+    function loadVendor(src, sri, globalName) {
+      if (window[globalName]) return Promise.resolve(window[globalName]);
+      return _scripts[src] ||= new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src; s.integrity = sri; s.crossOrigin = 'anonymous'; s.async = true;
+        s.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error(src + ' did not initialise'));
+        s.onerror = () => { delete _scripts[src]; reject(new Error('Could not load ' + src)); };
+        document.head.appendChild(s);
+      });
+    }
+    // Reads go straight to Base (same RPC the game already uses); only account/sign/send calls go to the SDK wallet.
+    const WALLET_METHODS = new Set(['eth_requestAccounts', 'eth_accounts', 'eth_chainId', 'net_version', 'personal_sign', 'eth_sign',
+      'eth_signTypedData', 'eth_signTypedData_v4', 'eth_sendTransaction', 'wallet_sendCalls', 'wallet_getCallsStatus',
+      'wallet_getCapabilities', 'wallet_showCallsStatus', 'wallet_switchEthereumChain', 'wallet_addEthereumChain', 'wallet_connect', 'wallet_disconnect']);
+    function withBaseReads(wallet, kind) {
+      let id = 0;
+      return {
+        __astKind: kind,
+        request: ({ method, params }) => WALLET_METHODS.has(method) ? wallet.request({ method, params })
+          : fetch('https://mainnet.base.org', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params: params || [] }) })
+              .then((r) => r.json()).then((j) => { if (j.error) throw Object.assign(new Error(j.error.message || 'RPC error'), { code: j.error.code }); return j.result; }),
+        on: (...a) => wallet.on?.(...a), removeListener: (...a) => wallet.removeListener?.(...a),
+      };
+    }
+    let baseAccountProvider = null, cdpWallet = null;
+    async function getBaseAccountProvider() {
+      if (baseAccountProvider) return baseAccountProvider;
+      const m = await loadVendor('/vendor/base-account.js', BASE_ACCOUNT_SRI, '__astBaseAccount');
+      const sdkBA = m.createBaseAccountSDK({ appName: 'Asteroid Shooter', appLogoUrl: location.origin + '/icon-192.png', appChainIds: [8453] });
+      return (baseAccountProvider = withBaseReads(sdkBA.getProvider(), 'base'));
+    }
+    async function getCdp() {
+      const cfg = await loadAppConfig();
+      if (!cfg.cdpProjectId) throw new Error('Email sign-in is not set up yet');
+      const m = await loadVendor('/vendor/cdp-embedded.js', CDP_SRI, '__astCdp');
+      if (!m.__ready) { await m.initialize({ projectId: cfg.cdpProjectId, ethereum: { createOnLogin: 'smart' } }); m.__ready = true; }
+      return m;
+    }
+    async function getCdpProvider() {
+      const m = await getCdp();
+      if (!cdpWallet) cdpWallet = withBaseReads(m.createWallet().provider, 'cdp');
+      return cdpWallet;
+    }
+    // Silent restore on reload for the two new methods (never prompts; returns null when not signed in).
+    async function restoreSavedSignIn() {
+      let kind = null; try { kind = localStorage.getItem(SIGNIN_KEY); } catch (e) {}
+      if (kind === 'base') return getBaseAccountProvider().catch(() => null);
+      if (kind === 'cdp') { try { const m = await getCdp(); if (await m.isSignedIn()) return getCdpProvider(); } catch (e) {} }
+      return null;
+    }
+    function rememberSignIn(kind) { try { if (kind) localStorage.setItem(SIGNIN_KEY, kind); } catch (e) {} }
+    async function signOutSaved() {
+      let kind = null; try { kind = localStorage.getItem(SIGNIN_KEY); localStorage.removeItem(SIGNIN_KEY); } catch (e) {}
+      try { if (kind === 'cdp') await (await getCdp()).signOut(); } catch (e) {}
+      try { if (kind === 'base' && baseAccountProvider) await baseAccountProvider.request({ method: 'wallet_disconnect' }); } catch (e) {}
+      location.reload();
+    }
+    window.__astSignIn = { restoreSavedSignIn, loadAppConfig, withBaseReads, get kind() { try { return localStorage.getItem(SIGNIN_KEY); } catch (e) { return null; } } };
+
+    function el(tag, attrs = {}, ...kids) {
+      const n = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) { if (k === 'style') n.style.cssText = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else n.setAttribute(k, v); }
+      for (const c of kids) n.append(c);
+      return n;
+    }
+    function openSignInChooser() {
+      if (document.getElementById('signin-modal')) return;
+      const close = () => wrap.remove();
+      const status = el('div', { id: 'signin-status', style: 'min-height:18px;color:#F7931A;font-size:13px;margin:8px 0 0' });
+      const setStatus = (t) => { status.textContent = t || ''; };
+      const done = async (prov, kind) => { close(); rememberSignIn(kind); await connectWallet(false, prov); };
+      const fail = (e) => { console.warn('[signin]', e); setStatus(e?.code === 4001 ? 'Cancelled' : (e?.shortMessage || e?.message || String(e)).slice(0, 160)); };
+
+      // Base Account: the passkey popup must open straight from the tap, so the SDK is preloaded as the modal opens.
+      const baseBtn = el('button', { id: 'signin-base', class: 'signin-opt', disabled: '' }, 'Sign in with Base (passkey)');
+      getBaseAccountProvider().then(() => baseBtn.removeAttribute('disabled')).catch((e) => { baseBtn.textContent = 'Sign in with Base unavailable'; console.warn(e); });
+      baseBtn.addEventListener('click', () => {
+        setStatus('Approve in the Base window…');
+        baseAccountProvider.request({ method: 'eth_requestAccounts' }).then(() => done(baseAccountProvider, 'base')).catch(fail);
+      });
+
+      const emailBox = el('div', { id: 'signin-email-box', hidden: '' });
+      const mkOtpFlow = (kind) => {
+        emailBox.replaceChildren(); emailBox.hidden = false;
+        const isSms = kind === 'sms';
+        const input = el('input', { id: 'signin-id', type: isSms ? 'tel' : 'email', autocomplete: isSms ? 'tel' : 'email', placeholder: isSms ? '+1 555 123 4567' : 'you@example.com', class: 'signin-input' });
+        const send = el('button', { id: 'signin-send', class: 'signin-opt' }, 'Send code');
+        const code = el('input', { id: 'signin-code', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6', placeholder: '6-digit code', class: 'signin-input', hidden: '' });
+        const verify = el('button', { id: 'signin-verify', class: 'signin-opt', hidden: '' }, 'Verify & play');
+        let flowId = null;
+        send.addEventListener('click', async () => {
+          const v = input.value.trim();
+          if (isSms ? !/^\+[1-9]\d{6,14}$/.test(v.replace(/[\s()-]/g, '')) : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return setStatus(isSms ? 'Enter your number with country code, e.g. +1…' : 'Enter a valid email');
+          send.disabled = true; setStatus('Sending code…');
+          try {
+            const m = await getCdp();
+            const r = isSms ? await m.signInWithSms({ phoneNumber: v.replace(/[\s()-]/g, '') }) : await m.signInWithEmail({ email: v });
+            flowId = r.flowId; code.hidden = false; verify.hidden = false; code.focus(); setStatus(isSms ? 'Code sent by text.' : 'Code sent – check your inbox.');
+          } catch (e) { fail(e); } finally { send.disabled = false; }
+        });
+        verify.addEventListener('click', async () => {
+          if (!/^\d{6}$/.test(code.value.trim())) return setStatus('Enter the 6-digit code');
+          verify.disabled = true; setStatus('Signing in…');
+          try {
+            const m = await getCdp();
+            if (isSms) await m.verifySmsOTP({ flowId, otp: code.value.trim() }); else await m.verifyEmailOTP({ flowId, otp: code.value.trim() });
+            const prov = await getCdpProvider();
+            await prov.request({ method: 'eth_requestAccounts' });
+            await done(prov, 'cdp');
+          } catch (e) { fail(e); } finally { verify.disabled = false; }
+        });
+        emailBox.append(input, send, code, verify);
+        input.focus();
+      };
+      const emailBtn = el('button', { id: 'signin-email', class: 'signin-opt', hidden: '' }, 'Continue with email');
+      const smsBtn = el('button', { id: 'signin-sms', class: 'signin-opt', hidden: '' }, 'Continue with phone (text code)');
+      emailBtn.addEventListener('click', () => mkOtpFlow('email'));
+      smsBtn.addEventListener('click', () => mkOtpFlow('sms'));
+      loadAppConfig().then((c) => { if (c.cdpProjectId) { emailBtn.hidden = false; smsBtn.hidden = false; getCdp().catch(() => {}); } });
+
+      const cbLink = el('a', { id: 'signin-cbw', href: 'https://go.cb-w.com/dapp?cb_url=' + encodeURIComponent(location.origin + '/'), target: '_blank', rel: 'noopener noreferrer', style: 'color:#9cf;font-size:13px' }, 'Have Coinbase Wallet / the Base app? Open the game there');
+      const box = el('div', { class: 'signin-box', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'signin-title' },
+        el('h3', { id: 'signin-title', style: 'margin:0 0 6px;color:#32FF9A' }, 'Sign in to play'),
+        el('div', { style: 'font-size:12px;color:#aaa;margin-bottom:10px' }, 'Your game account is a Base wallet. Pick one:'),
+        baseBtn, emailBtn, smsBtn, emailBox, status,
+        el('div', { style: 'margin-top:10px' }, cbLink),
+        el('button', { id: 'signin-close', class: 'signin-cancel', onclick: close }, 'Cancel'));
+      const wrap = el('div', { id: 'signin-modal', class: 'signin-wrap' }, box);
+      wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+      document.body.appendChild(wrap);
+    }
+
+    // ===== Add funds: card / Apple Pay / Google Pay via Coinbase-hosted Onramp (Phase 2) =====
+    // /api/onramp mints a single-use URL for the player's own address (keys stay on the server). Opens outside the
+    // game (new tab / system browser, or the mini-app host's openUrl). Shown only when the server says it's set up.
+    let fundsWatch = null;
+    function watchForFunds(minutes = 15) {
+      const startBal = document.getElementById('usdc-balance').innerText;
+      const until = Date.now() + minutes * 60000;
+      clearInterval(fundsWatch);
+      const tick = async () => {
+        if (Date.now() > until) return clearInterval(fundsWatch);
+        if (document.visibilityState !== 'visible') return;
+        await updateUsdcBalance().catch(() => {});
+        if (document.getElementById('usdc-balance').innerText !== startBal) { clearInterval(fundsWatch); uiToast('Funds arrived – you can buy lives now'); }
+      };
+      fundsWatch = setInterval(tick, 15000);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() < until) tick(); });
+    }
+    async function refreshAddFunds() {
+      const btn = document.getElementById('add-funds');
+      if (!btn) return;
+      const cfg = await loadAppConfig();
+      btn.hidden = !(cfg.onramp && userAddress);
+      if (btn.hidden) return;
+      try {
+        const wei = await readProvider().getBalance(userAddress);
+        document.getElementById('fund-eth3').hidden = wei > 30000000000000n; // ~$0.10 of ETH: plenty of gas on Base
+      } catch (e) {}
+    }
+    async function startOnramp(bundle) {
+      if (!userAddress) return uiAlert('Connect first');
+      const inHost = !!(window.__inMiniApp && sdk?.actions?.openUrl);
+      // open the tab inside the tap (popup blockers); point it at Coinbase once the link exists
+      const w = inHost ? null : window.open('about:blank', '_blank');
+      try { localStorage.setItem('ast_onramp_pending', String(Date.now())); } catch (e) {}
+      try {
+        const r = await fetch('/api/onramp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address: userAddress, bundle }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.url || !/^https:\/\/pay\.coinbase\.com\//.test(j.url)) throw new Error(j.error || 'Could not start the purchase');
+        if (inHost) await sdk.actions.openUrl(j.url);
+        else if (w && !w.closed) { try { w.opener = null; } catch (e) {} w.location.href = j.url; }
+        else location.href = j.url; // tab was blocked: go in this window, Coinbase redirects back here when done
+        document.getElementById('add-funds-panel').hidden = true;
+        watchForFunds();
+      } catch (e) {
+        if (w && !w.closed) w.close();
+        uiAlert('Add funds: ' + (e?.message || e));
+      }
+    }
+    document.getElementById('add-funds')?.addEventListener('click', () => { const p = document.getElementById('add-funds-panel'); p.hidden = !p.hidden; if (!p.hidden) refreshAddFunds(); });
+    document.querySelectorAll('#add-funds-panel [data-bundle]').forEach((b) => b.addEventListener('click', () => startOnramp(b.dataset.bundle)));
+    document.getElementById('sign-out')?.addEventListener('click', () => signOutSaved());
+    // Back from Coinbase: the redirect is the plain https://asteroidsshooter.app/ (the URL allowlisted in the CDP
+    // portal), so a purchase started in the last 30 min (localStorage) marks the return; ?funded=1 still works.
+    // Refresh the balance once connected and keep watching for a while.
+    let cameBackFunded = new URLSearchParams(location.search).get('funded') === '1';
+    if (cameBackFunded) { try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {} }
+    try {
+      const t = Number(localStorage.getItem('ast_onramp_pending') || 0);
+      if (t && Date.now() - t < 30 * 60 * 1000) cameBackFunded = true;
+      if (t) localStorage.removeItem('ast_onramp_pending');
+    } catch (e) {}
+
     // v5.13: silent=true restores a previously connected wallet on load with eth_accounts (never prompts).
     document.getElementById('connect-wallet').addEventListener('click', () => connectWallet(false));
     // Player name + avatar in the top bar (mini-app username/pfp when available, else the short address).
@@ -1121,7 +1333,7 @@
         av.style.display = 'block';
       }
     }
-    async function connectWallet(silent) {
+    async function connectWallet(silent, chosenProvider) {
       if (isConnecting || userAddress) return;
       isConnecting = true;
       const button = document.getElementById('connect-wallet');
@@ -1132,13 +1344,18 @@
         console.log('[connect] start');
         // Perf: an injected wallet (Coinbase / Base app browser, MetaMask) is preferred anyway, so only wait for the
         // mini-app SDK when there is none; the mini-app username/avatar is applied whenever the SDK finishes.
-        if (!(window.ethereum || eip6963[0]?.provider)) {
+        if (!chosenProvider && !(window.ethereum || eip6963[0]?.provider)) {
           await withTimeout(sdkReady, 4000, 'mini-app SDK init').catch((e) => console.warn('[connect]', e.message));
         }
-        // Prefer the injected wallet (Base app / Coinbase / MetaMask); the mini-app provider is the fallback.
-        const eip1193 = window.ethereum || eip6963[0]?.provider || fcProvider;
-        console.log('[connect] provider:', window.ethereum ? 'window.ethereum' : eip6963[0] ? 'EIP-6963 ' + eip6963[0].info?.name : fcProvider ? 'mini-app SDK' : 'none');
-        if (!eip1193) { if (silent) throw Object.assign(new Error('no wallet'), { silentSkip: true }); throw new Error('No wallet found. Open this page in the Base app browser or a wallet browser.'); }
+        // Prefer the injected wallet (Base app / Coinbase / MetaMask); the mini-app provider is the fallback;
+        // then a remembered "Sign in with Base" / email sign-in; then (on a tap) the sign-in chooser.
+        let eip1193 = chosenProvider || window.ethereum || eip6963[0]?.provider || fcProvider;
+        if (!eip1193 && silent) eip1193 = await restoreSavedSignIn();
+        console.log('[connect] provider:', chosenProvider ? 'sign-in ' + (chosenProvider.__astKind || '') : window.ethereum ? 'window.ethereum' : eip6963[0] ? 'EIP-6963 ' + eip6963[0].info?.name : fcProvider ? 'mini-app SDK' : eip1193?.__astKind ? 'saved sign-in ' + eip1193.__astKind : 'none');
+        if (!eip1193) {
+          if (silent) throw Object.assign(new Error('no wallet'), { silentSkip: true });
+          throw Object.assign(new Error('choose sign-in'), { chooser: true });
+        }
         if (!silent) button.innerText = 'Approve in wallet...';
         const accounts = await withTimeout(eip1193.request({ method: silent ? "eth_accounts" : "eth_requestAccounts" }), silent ? 5000 : 120000, 'Wallet connection request');
         console.log('[connect] accounts', silent ? '(silent)' : '', accounts);
@@ -1166,6 +1383,9 @@
         document.getElementById('start-game').disabled = false;
 
         await updateUsdcBalance().catch(() => {});
+        refreshAddFunds().catch(() => {});
+        if (eip1193.__astKind) { const so = document.getElementById('sign-out-row'); if (so) so.hidden = false; }
+        if (cameBackFunded) { uiToast('Back from Coinbase – USDC can take a few minutes to arrive'); watchForFunds(); }
         if (contractsConfigured && userAddress) {
           try {
             const c = new ethers.Contract(leaderboardAddress, lbAbi, provider);
@@ -1189,6 +1409,7 @@
         button.innerText = prevText;
         button.disabled = false;
         if (silent) { console.log('[connect] silent reconnect skipped:', err?.message); return; }
+        if (err?.chooser) { openSignInChooser(); return; }
         console.error('[connect] error:', err);
         const msg = err?.code === 4001 ? 'Request rejected in wallet' : (err?.shortMessage || err?.message || String(err));
         button.innerText = prevText;
