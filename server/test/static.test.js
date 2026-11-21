@@ -104,3 +104,19 @@ test("tilt off switch lives in the start-screen settings panel, defaults ON, per
   assert.match(gameJs, /if \(asked \|\| !enabled\(\) \|\| !needsPermission\(\)\) return;/, "no prompt when off");
   assert.match(gameJs, /if \(listening \|\| !enabled\(\)/, "no listener when off");
 });
+
+test("tilt drift fix: 5° dead zone, finger release re-levels after a settle window, slow auto-recenter", () => {
+  assert.match(gameJs, /const DEAD = 5;/);
+  assert.match(gameJs, /this\._drag = null;\s*\n\s*if \(gameplayActive\) Tilt\.settle\(250\);/, "release parks the ship");
+  assert.match(gameJs, /calibrate\(\) \{ this\.settle\(200\); \}/, "GO averages ~200 ms of readings");
+  assert.match(gameJs, /neutral = settleSum \/ settleN/);
+  assert.match(gameJs, /RECENTER_AFTER/);
+});
+
+test("daily free life UI: auto-claim message, chain re-read after start and on return, local next/used times", () => {
+  assert.match(gameJs, /freeClaimNeeded \? 'Using your free daily life… confirm in wallet'/);
+  assert.match(gameJs, /sendAndConfirm\(calls[^\n]*\n\s*refreshDailyFromChain\(\)/, "re-read right after the start/claim confirms");
+  assert.match(gameJs, /visibilitychange', \(\) => \{ if \(document\.visibilityState === 'visible'\) refreshDailyFromChain\(\)/);
+  assert.match(gameJs, /Next free life: \$\{fmtWhen\(nextDailyAtMs\)\}/);
+  assert.match(gameJs, /'function lastDailyClaim\(address\) view returns \(uint256\)'/);
+});
