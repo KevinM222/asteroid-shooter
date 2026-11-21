@@ -834,51 +834,90 @@
       if (t !== _lastTop) { _lastTop = t; optimizeGameSize(); }
     }, 400);
     // ===== Keep the screen awake during a round (tilt players may not touch the screen for a while) =====
-    // Screen Wake Lock API where available (iOS 16.4+ Safari, Android Chrome). The OS drops the lock whenever the
-    // page is hidden, so it is re-requested on return while a round is running. Browsers without the API (older iOS,
-    // some in-app WebViews) get a NoSleep-style fallback: a 2 KB muted, looping, invisible inline video, created only
-    // on those browsers, unlocked by the Start Game tap. Everything fails silently.
+    // Two layers, both started from the Start Game TAP (a user gesture) and kept through countdown + round:
+    //  1. Screen Wake Lock API (navigator.wakeLock) where it exists.
+    //  2. NoSleep-style video, ALWAYS on iOS/iPadOS (WKWebView in Coinbase Wallet / X shipped a navigator.wakeLock
+    //     that silently did nothing before iOS 18.4) and anywhere the API is missing or refuses.
+    //     WebKit only keeps the display on for a PLAYING, UN-muted video WITH an audio track and WITHOUT the loop
+    //     attribute (loop / muted / no audio = screen may sleep). So: a 3 s H.264+silent-AAC clip, unmuted (the track is
+    //     silent; the game has no sound of its own), played inside the tap, and kept going by seeking back on
+    //     timeupdate instead of `loop` (same trick as NoSleep.js). It is created only on those browsers.
+    // Released at game over / leaving play; re-acquired when the page becomes visible again and on any tap during play.
+    // Everything fails silently. Debug: __astWake.state(), or add ?debug=wake to the URL for a tiny status overlay.
     const Awake = (() => {
-      let want = false, lock = null, video = null;
+      const ua = navigator.userAgent || '';
+      const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      let want = false, lock = null, video = null, lockErr = '', videoErr = '', requests = 0;
       const hasApi = () => !!(navigator.wakeLock && typeof navigator.wakeLock.request === 'function');
+      const needVideo = () => isIOS || !hasApi() || !!lockErr;
       const makeVideo = () => {
         if (video) return video;
         video = document.createElement('video');
-        video.muted = true; video.loop = true; video.playsInline = true;
-        video.setAttribute('muted', ''); video.setAttribute('playsinline', ''); video.setAttribute('aria-hidden', 'true');
-        video.preload = 'auto'; video.src = '/assets/keepawake.mp4';
-        video.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1';
+        video.setAttribute('title', 'Keep screen awake');
+        video.setAttribute('playsinline', ''); video.setAttribute('webkit-playsinline', ''); video.playsInline = true;
+        video.setAttribute('aria-hidden', 'true');
+        video.muted = false;           // see note above: muted video does not hold the display on iOS
+        video.preload = 'auto';
+        video.src = '/assets/keepawake.mp4';
+        video.style.cssText = 'position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:0';
+        video.addEventListener('timeupdate', () => { if (video.duration > 1 && video.currentTime > video.duration - 1) video.currentTime = 0.1 + Math.random() * 0.3; });
+        video.addEventListener('ended', () => { if (want) { video.currentTime = 0; playVideo(); } });
+        video.addEventListener('error', () => { videoErr = 'media error ' + (video.error && video.error.code); });
         document.body.appendChild(video);
         return video;
       };
-      const playVideo = () => { try { const v = makeVideo(); const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) {} };
-      const acquire = () => {
-        if (document.visibilityState !== 'visible') return;
-        if (hasApi()) {
-          if (lock) return;
+      const playVideo = () => {
+        try {
+          const v = makeVideo();
+          if (!v.paused) return;
+          const pr = v.play();
+          if (pr && pr.then) pr.then(() => { videoErr = ''; if (!want) v.pause(); }).catch((e) => { videoErr = (e && e.name) || String(e); });
+        } catch (e) { videoErr = (e && e.name) || String(e); }
+      };
+      const requestLock = () => {
+        if (!hasApi() || lock || document.visibilityState !== 'visible') return;
+        requests++;
+        try {
           navigator.wakeLock.request('screen').then((l) => {
             if (!want) { l.release().catch(() => {}); return; }
-            lock = l; l.addEventListener('release', () => { if (lock === l) lock = null; });
-          }).catch((e) => { console.log('[awake] wake lock refused:', e?.name || e); if (want) playVideo(); });
-        } else playVideo();
+            lock = l; lockErr = '';
+            l.addEventListener('release', () => { if (lock === l) lock = null; });
+          }).catch((e) => { lockErr = (e && e.name) || String(e); if (want) playVideo(); });
+        } catch (e) { lockErr = (e && e.name) || String(e); if (want) playVideo(); }
+      };
+      const acquire = () => {
+        if (!want) return;
+        requestLock();
+        if (needVideo()) playVideo();
       };
       document.addEventListener('visibilitychange', () => { if (want && document.visibilityState === 'visible') acquire(); });
-      return {
-        // Start Game tap (user gesture): lets the fallback video play later without a tap (iOS Low Power Mode etc.)
-        prime() {
-          if (hasApi() || video) return;
-          try { const v = makeVideo(); const pr = v.play(); if (pr && pr.then) pr.then(() => { if (!want) v.pause(); }).catch(() => {}); } catch (e) {}
-        },
+      // any tap while a round runs is a fresh user gesture: re-assert (cheap no-op when already held)
+      document.addEventListener('pointerdown', () => { if (want) acquire(); }, true);
+      const api = {
+        // Call synchronously inside the Start Game tap (before any await).
         on() { want = true; acquire(); },
         off() {
           want = false;
           if (lock) { const l = lock; lock = null; l.release().catch(() => {}); }
           if (video) try { video.pause(); } catch (e) {}
         },
-        state() { return { want, locked: !!lock, api: hasApi(), video: !!video && !video.paused }; }
+        state() {
+          return { want, isIOS, api: hasApi(), locked: !!lock, lockErr, requests, videoUsed: !!video,
+                   videoPlaying: !!video && !video.paused, videoTime: video ? +video.currentTime.toFixed(2) : null,
+                   videoReady: video ? video.readyState : null, videoErr, visible: document.visibilityState };
+        }
       };
+      if (/[?&]debug=wake\b/.test(location.search)) {
+        const box = document.createElement('div');
+        box.style.cssText = 'position:fixed;right:4px;bottom:calc(env(safe-area-inset-bottom,0px) + 4px);z-index:10001;background:rgba(0,0,0,.75);color:#0f0;font:11px/1.3 monospace;padding:4px 6px;border:1px solid #0f0;pointer-events:none;white-space:pre;text-align:left';
+        const draw = () => { const st = api.state(); box.textContent = 'wake ' + Object.entries(st).map(([k, v]) => k + '=' + v).join('\n'); };
+        document.addEventListener('DOMContentLoaded', () => document.body.appendChild(box));
+        setInterval(draw, 500); draw();
+      }
+      return api;
     })();
     window.__astAwake = Awake; // debug/test hook
+    window.__astWake = Awake;
 
     function enterPlayMode() {
       window.scrollTo(0, 0);
@@ -1171,7 +1210,7 @@ async function dailyClaimReady() {
 }
 startButton.addEventListener("click", async () => {
   if (!userAddress) return uiAlert("Connect wallet first");
-  Awake.prime();           // no-op where the Wake Lock API exists; unlocks the fallback video otherwise
+  Awake.on();              // wake lock + iOS video, from the tap itself (a later timer is not a user gesture on iOS)
   Tilt.requestOnGesture(); // iOS motion prompt (once, remembered) – must run before any await to keep the tap gesture
   freeClaimNeeded = false;
 
@@ -1187,6 +1226,7 @@ startButton.addEventListener("click", async () => {
         if (!freeClaimNeeded) {
           let when = '';
           try { const next = Number(await c.nextDailyClaimAt(userAddress)); if (next) when = ' Next free life: ' + fmtWhen(next * 1000) + '.'; } catch (e) {}
+          Awake.off();
           return uiAlert("You have 0 lives." + when);
         }
       }
@@ -1195,7 +1235,7 @@ startButton.addEventListener("click", async () => {
     }
   }
 
-  if (lives !== null && lives <= 0 && !freeClaimNeeded) return uiAlert("No lives left!");
+  if (lives !== null && lives <= 0 && !freeClaimNeeded) { Awake.off(); return uiAlert("No lives left!"); }
 
   startButton.disabled = true;
   const playerName = cleanPlayerName(sdk?.context?.user?.username || document.getElementById('whoami').textContent, "Guest");
@@ -1257,7 +1297,7 @@ startButton.addEventListener("click", async () => {
           countdownText.destroy();
           gameEnded = false; resultsLocked = false;
           Tilt.calibrate(); // the angle the phone is held at right now = level
-          Awake.on();       // keep the screen on for the round
+          Awake.on();       // re-assert for the round (already started by the tap)
           gameplayActive = true;
           sceneInstance.spawnTimer = sceneInstance.time.addEvent({ 
             delay: 1200, callback: sceneInstance.spawnAsteroid, callbackScope: sceneInstance, loop: true 

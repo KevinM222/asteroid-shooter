@@ -128,8 +128,13 @@ test("screen wake lock: on at GO, off at game over / leaving play, re-acquired o
   assert.match(gameJs, /function exitPlayMode\(\) \{\n\s*Awake\.off\(\);/);
   assert.match(gameJs, /if \(want && document\.visibilityState === 'visible'\) acquire\(\)/);
   const start = gameJs.indexOf('startButton.addEventListener("click", async () => {');
-  const prime = gameJs.indexOf("Awake.prime()", start);
-  assert.ok(prime > start && prime < gameJs.indexOf("await", start), "fallback unlocked inside the tap, before any await");
+  const on = gameJs.indexOf("Awake.on()", start);
+  assert.ok(on > start && on < gameJs.indexOf("await", start), "wake lock + video started inside the tap, before any await");
+  assert.match(gameJs, /const needVideo = \(\) => isIOS \|\| !hasApi\(\) \|\| !!lockErr;/, "video also runs on iOS even when navigator.wakeLock exists");
+  assert.match(gameJs, /video\.muted = false;/, "WebKit ignores muted video for display sleep");
+  assert.doesNotMatch(gameJs, /video\.loop = true/, "WebKit ignores looping video for display sleep");
+  assert.match(gameJs, /addEventListener\('timeupdate'/);
+  assert.match(gameJs, /debug=wake/);
   assert.ok(readFileSync(new URL("assets/keepawake.mp4", root)).length < 10000, "fallback video stays tiny");
   assert.match(vercel.headers[0].headers.find((h) => h.key === "Content-Security-Policy-Report-Only").value, /media-src 'self'/);
 });
