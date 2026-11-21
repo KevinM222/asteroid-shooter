@@ -32,3 +32,28 @@ export function cors(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "POST only" }); return true; }
   return false;
 }
+
+// Stricter CORS for endpoints that spend CDP quota (/api/onramp): a request whose Origin is not on the list is
+// refused outright (403), and "*" is never sent. On a Vercel PREVIEW deployment the deployment's own URLs are
+// allowed too (same-origin fetches from the preview page), and nothing else.
+export function previewOrigins(env = process.env) {
+  if (env.VERCEL_ENV !== "preview") return [];
+  return [env.VERCEL_URL, env.VERCEL_BRANCH_URL].filter(Boolean).map((h) => `https://${h}`);
+}
+
+export function strictCors(req, res, { methods = "POST", env = process.env } = {}) {
+  const origin = req.headers?.origin;
+  const list = [...allowedOrigins(), ...previewOrigins(env)];
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Cache-Control", "no-store");
+  if (origin && !list.includes(origin)) { res.status(403).json({ error: "origin not allowed" }); return true; }
+  if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+  if (req.method === "OPTIONS") {
+    res.setHeader("Access-Control-Allow-Methods", methods);
+    res.setHeader("Access-Control-Allow-Headers", "content-type");
+    res.status(204).end();
+    return true;
+  }
+  if (!methods.split(",").map((m) => m.trim()).includes(req.method)) { res.status(405).json({ error: methods + " only" }); return true; }
+  return false;
+}

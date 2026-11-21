@@ -142,6 +142,21 @@
     #settings-panel input { vertical-align: middle; accent-color: #32FF9A; }
     #settings-panel .settings-hint { color: #777; font-size: 11px; }
     body.game-mode #settings-btn, body.game-mode #settings-panel { display: none !important; }
+    /* Add funds (Coinbase Onramp) + sign-in chooser. Hidden during play. */
+    #add-funds { margin: 2px auto; padding: 4px 10px; font-size: 12px; border-color: #32FF9A !important; color: #32FF9A !important; }
+    #add-funds-panel { margin: 4px auto; padding: 6px 8px; max-width: 340px; font-size: 13px; color: #ccc; border: 1px solid #32FF9A; border-radius: 8px; background: rgba(10,15,46,.92); text-align: center; }
+    #add-funds-panel[hidden], #add-funds[hidden], #sign-out-row[hidden] { display: none !important; }
+    #add-funds-panel button { margin: 4px 3px; padding: 6px 12px; font-size: 13px; }
+    #add-funds-panel .af-title { margin-bottom: 2px; }
+    #add-funds-panel .af-hint { color: #888; font-size: 11px; }
+    #sign-out { padding: 2px 8px !important; font-size: 12px !important; margin-top: 4px; }
+    body.game-mode #add-funds, body.game-mode #add-funds-panel { display: none !important; }
+    .signin-wrap { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: flex; align-items: center; justify-content: center; z-index: 1000001; }
+    .signin-box { background: #0A0F2E; color: #fff; border: 2px solid #32FF9A; border-radius: 14px; padding: 18px; width: min(340px, 90vw); text-align: center; }
+    .signin-box .signin-opt { display: block; width: 100%; margin: 6px 0; padding: 10px; font-size: 15px; }
+    .signin-box .signin-opt[hidden], .signin-box [hidden] { display: none !important; }
+    .signin-box .signin-input { display: block; width: 100%; box-sizing: border-box; margin: 6px 0; padding: 10px; font-size: 16px; border-radius: 8px; border: 1px solid #555; background: #111; color: #fff; }
+    .signin-box .signin-cancel { margin-top: 10px; padding: 6px 14px; font-size: 13px; background: #111; border: 1px solid #555; }
   </style>
 </head>
 <body>
@@ -164,6 +179,14 @@
       <button id="buy-25">25 Lives</button>
       <button id="buy-50">50 Lives</button>
     </div>
+    <div class="fund-row"><button id="add-funds" type="button" hidden aria-controls="add-funds-panel">+ Add funds</button></div>
+    <div id="add-funds-panel" hidden>
+      <div class="af-title">Add USDC with card, Apple Pay or Google Pay <span class="af-hint">(via Coinbase · opens a new tab)</span></div>
+      <button type="button" id="fund-usdc5" data-bundle="usdc5">$5 USDC</button>
+      <button type="button" id="fund-usdc10" data-bundle="usdc10">$10 USDC</button>
+      <button type="button" id="fund-eth3" data-bundle="eth3" hidden>$3 ETH for gas</button>
+      <div class="af-hint">Then tap a lives pack above. New wallet? Each game needs a tiny bit of ETH for gas.</div>
+    </div>
   </div>
 
   <h1>Asteroid Shooter</h1>
@@ -175,6 +198,7 @@
   </div>
   <div id="settings-panel" hidden>
     <label><input type="checkbox" id="tilt-setting" checked> Tilt steering <span class="settings-hint">(tilt your phone to move the ship)</span></label>
+    <div id="sign-out-row" hidden><button type="button" id="sign-out">Sign out</button> <span class="settings-hint">(email / Sign in with Base)</span></div>
   </div>
   <div class="more-apps" id="more-apps-home"></div>
 

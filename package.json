@@ -10,11 +10,16 @@
     "ethers": "6.11.1"
   },
   "scripts": {
-    "test": "node --test server/test/",
-    "build:sdk": "esbuild scripts/fc-sdk-entry.js --bundle --minify --format=iife --target=es2020 --outfile=vendor/miniapp-sdk.js"
+    "test": "node --test server/test/*.test.js",
+    "build:sdk": "esbuild scripts/fc-sdk-entry.js --bundle --minify --format=iife --target=es2020 --outfile=vendor/miniapp-sdk.js",
+    "build:base-account": "esbuild scripts/base-account-entry.js --bundle --minify --format=iife --target=es2020 --platform=browser --define:process.env.NODE_ENV='\"production\"' --define:global=globalThis --outfile=vendor/base-account.js",
+    "build:cdp": "esbuild scripts/cdp-embedded-entry.js --bundle --minify --format=iife --target=es2020 --platform=browser --alias:react=./scripts/react-stub.js --define:process.env.NODE_ENV='\"production\"' --define:global=globalThis --outfile=vendor/cdp-embedded.js"
   },
   "devDependencies": {
     "@farcaster/miniapp-sdk": "0.3.0",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "@base-org/account": "2.6.0",
+    "@coinbase/cdp-core": "0.0.132",
+    "viem": "2.58.4"
   }
 }
